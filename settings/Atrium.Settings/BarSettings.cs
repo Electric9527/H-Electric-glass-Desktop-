@@ -66,6 +66,7 @@ internal sealed class BarSettings
     public bool NotifyListener { get; set; } = true;   // Windows notifications as Atrium cards
     public bool NotifyFeishu { get; set; } = true;     // Feishu messages as Atrium cards (its own popup, read only)
     public bool NotifyWeChat { get; set; } = true;     // WeChat messages as Atrium cards (its chat list, read only)
+    public bool GlassSwitcher { get; set; } = true;    // Alt + Tab opens the glass window switcher
     public bool CalmWindows { get; set; }              // Windows' own minimise/maximise animation off
     public bool NotifyQQ { get; set; } = true;         // QQ messages as Atrium cards (its popup, or its flashing taskbar button)
     public bool NotifyBilibili { get; set; } = true;   // the bilibili client's messages (likewise)
@@ -162,6 +163,7 @@ internal sealed class BarSettings
             ["notifyFeishu"] = NotifyFeishu,
             ["notifyQQ"] = NotifyQQ,
             ["calmWindows"] = CalmWindows,
+            ["glassSwitcher"] = GlassSwitcher,
             ["notifyBilibili"] = NotifyBilibili,
             ["bar"] = Bar,
             ["widgets"] = Widgets,
@@ -239,6 +241,7 @@ internal sealed class BarSettings
         s.NotifyFeishu = Flag("notifyFeishu", f.NotifyFeishu);
         s.NotifyQQ = Flag("notifyQQ", f.NotifyQQ);
         s.CalmWindows = Flag("calmWindows", f.CalmWindows);
+        s.GlassSwitcher = Flag("glassSwitcher", f.GlassSwitcher);
         s.NotifyBilibili = Flag("notifyBilibili", f.NotifyBilibili);
         s.Bar = Flag("bar", f.Bar);
         s.Widgets = Flag("widgets", f.Widgets);
@@ -300,7 +303,7 @@ internal sealed class BarSettings
         ShowTray == o.ShowTray && ShowVoice == o.ShowVoice && StartTray == o.StartTray && StartStatus == o.StartStatus && StartSize == o.StartSize && ShowStatus == o.ShowStatus && ShowNotifications == o.ShowNotifications &&
         ShowRunning == o.ShowRunning && TextColor == o.TextColor && AutoHide == o.AutoHide && StatusStyle == o.StatusStyle && NotifyTimeout == o.NotifyTimeout && NotifyHideBody == o.NotifyHideBody &&
         NotifyListener == o.NotifyListener && NotifyWeChat == o.NotifyWeChat && NotifyFeishu == o.NotifyFeishu &&
-        NotifyQQ == o.NotifyQQ && NotifyBilibili == o.NotifyBilibili && CalmWindows == o.CalmWindows && Bar == o.Bar && Widgets == o.Widgets &&
+        NotifyQQ == o.NotifyQQ && NotifyBilibili == o.NotifyBilibili && CalmWindows == o.CalmWindows && GlassSwitcher == o.GlassSwitcher && Bar == o.Bar && Widgets == o.Widgets &&
         WidgetsOnRight == o.WidgetsOnRight && WidgetBackdrop == o.WidgetBackdrop && StageManager == o.StageManager && StageOnRight == o.StageOnRight &&
         StageAutoHide == o.StageAutoHide && StageMinimize == o.StageMinimize && WidgetMaterial == o.WidgetMaterial &&
         HideTaskbar == o.HideTaskbar && HideBanners == o.HideBanners && WinKeyStart == o.WinKeyStart && WinNumbers == o.WinNumbers &&

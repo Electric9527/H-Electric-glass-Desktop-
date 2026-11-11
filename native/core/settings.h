@@ -67,6 +67,7 @@ struct Settings {
     bool notifyListener = true;      // Windows notifications as Atrium cards (UserNotificationListener)
     bool notifyFeishu = true;        // Feishu messages as Atrium cards (its own popup, read through UI Automation)
     bool notifyWeChat = true;        // WeChat messages as Atrium cards (its chat list, read through UI Automation)
+    bool glassSwitcher = true;       // Alt + Tab opens Atrium's window switcher instead of Windows'
     bool calmWindows = false;        // Windows' own minimise/maximise animation off, so only Atrium's motion shows
     bool notifyQQ = true;            // QQ messages as Atrium cards (its popup, or its flashing taskbar button)
     bool notifyBilibili = true;      // the bilibili client's messages as Atrium cards (likewise)

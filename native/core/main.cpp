@@ -13,6 +13,8 @@
 #include "shell/update_checker.h"
 #include "motion.h"
 #include "shell/voice_input.h"
+#include "shell/alt_tab.h"
+#include "ui/window_switcher.h"
 #include "shell/drop_update.h"
 #include "shell/app_message_source.h"
 #include "shell/task_model.h"
@@ -68,6 +70,7 @@ constexpr UINT WM_TRAY_ICONS = WM_APP + 6;    // the tray model has read the ico
 constexpr UINT WM_VOLUME = WM_APP + 7;        // the default playback device's volume changed
 constexpr UINT WM_STATUS = WM_APP + 10;       // lParam: SystemStatus*, read off the UI thread
 constexpr UINT WM_UPDATE_READY = WM_APP + 11; // background package is validated and ready
+constexpr UINT WM_ALT_TAB = WM_APP + 40;      // shell/alt_tab.h: AltTab::kNext.. (returns 1 when the switcher took it)
 constexpr UINT WM_WIN_KEY = WM_APP + 12;      // the Windows key alone (wParam 0, winKeyStart), Win + 1..9, 0 (1..10, winNumbers)
 constexpr UINT_PTR kTrayTimer = 0x51;
 constexpr UINT_PTR kStatusTimer = 0x52;       // the bar's status icon
@@ -118,6 +121,8 @@ struct App {
     std::unique_ptr<WindowPreview> preview;
     std::unique_ptr<StageManager> stage;
     std::unique_ptr<WinKey> winKey;
+    std::unique_ptr<AltTab> altTab;            // setting glassSwitcher
+    std::unique_ptr<WindowSwitcher> switcher;
     HANDLE guard = nullptr; // the guard process (EnsureGuard)
     bool winKeyStart = false, winNumbers = false; // what it watches
     bool widgetsOn = false;
@@ -347,6 +352,51 @@ void ToggleCalendar()
         return;
     g_app.calendar->Open(ActiveBar().EntryRect(L"#clock"), ActiveBar().BarRect());
     g_app.notes->PanelsChanged();
+}
+
+// Alt + Tab (shell/alt_tab.h): opens the window switcher or moves in it. 1: taken; 0: left to Windows.
+LRESULT OnAltTab(WPARAM what)
+{
+    if (!g_app.switcher || !g_app.tasks)
+        return 0;
+    WindowSwitcher& sw = *g_app.switcher;
+    if (what == AltTab::kCommit) {
+        sw.Commit();
+        return 1;
+    }
+    if (what == AltTab::kCancel) {
+        sw.Cancel();
+        return 1;
+    }
+    const bool back = what == AltTab::kPrevious;
+    if (sw.Visible()) {
+        sw.Step(back);
+        return 1;
+    }
+    // The taskbar's windows, in the order they were last used (the z-order, top first).
+    std::map<HWND, std::wstring> keys;
+    for (const TaskItem& t : g_app.tasks->Snapshot())
+        for (HWND h : t.windows)
+            keys[h] = t.key;
+    struct Ctx {
+        const std::map<HWND, std::wstring>* keys;
+        std::vector<WindowSwitcher::Entry> out;
+    } ctx{&keys, {}};
+    EnumWindows(
+        [](HWND h, LPARAM l) -> BOOL {
+            auto* c = reinterpret_cast<Ctx*>(l);
+            if (auto it = c->keys->find(h); it != c->keys->end())
+                c->out.push_back({h, it->second, {}});
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&ctx));
+    if (ctx.out.size() < 2)
+        return 0;
+    for (WindowSwitcher::Entry& e : ctx.out)
+        e.icon = g_app.tasks->Icon(e.key, 64);
+    if (g_app.preview)
+        g_app.preview->Close();
+    return sw.Open(std::move(ctx.out), back) ? 1 : 0;
 }
 
 // Windows' "animation effects" setting, followed by Atrium's own motion (motion::reduced).
@@ -632,6 +682,13 @@ void ApplySettings(const Settings& s)
     else if (!(s.bar && s.notifyFeishu) && g_app.feishu)
         g_app.feishu.reset();
     ApplyCalmWindows(s.calmWindows);
+    if (s.bar && s.glassSwitcher && !g_app.altTab)
+        g_app.altTab = std::make_unique<AltTab>(g_app.host, WM_ALT_TAB);
+    else if (!(s.bar && s.glassSwitcher) && g_app.altTab) {
+        g_app.altTab.reset();
+        if (g_app.switcher)
+            g_app.switcher->Cancel();
+    }
     if (s.bar && s.notifyQQ && !g_app.qq)
         g_app.qq = std::make_unique<AppMessageSource>(g_app.host, WM_NOTICE, QQSpec());
     else if (!(s.bar && s.notifyQQ) && g_app.qq)
@@ -1203,6 +1260,8 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
     case WM_OPEN_SETTINGS:
         OpenSettings();
         return 0;
+    case WM_ALT_TAB:
+        return OnAltTab(w);
     case WM_WIN_KEY:
         if (!g_app.barOn.value_or(true))
             return 0;
@@ -1612,6 +1671,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     };
     // Pointer on an app with windows: its windows, previewed above it (as the Windows taskbar).
     g_app.preview = std::make_unique<WindowPreview>(instance);
+    g_app.switcher = std::make_unique<WindowSwitcher>(instance);
+    g_app.switcher->onActivate = [](HWND window) { TaskModel::ActivateWindow(window); };
     ConfigureBar(*g_app.bar);
     g_app.displaysReady = true;
     ApplySettings(settings);
@@ -1656,6 +1717,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     if (g_app.chrome) g_app.chrome->RestoreForExit();
     g_app.stage->RestoreAll(); // the windows Stage Manager put away come back
     g_app.winKey.reset();
+    g_app.altTab.reset();
+    g_app.switcher.reset();
     g_app.status.reset();
     g_app.preview->Close();
     bool renderingStopped = true;

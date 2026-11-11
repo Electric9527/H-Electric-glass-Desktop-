@@ -658,6 +658,11 @@
                                 <local:ToggleTile x:Name="TraySwitch" Title="在任务栏上显示" SwitchName="显示系统托盘" Toggled="OnBarContentToggled" Flat="True" />
                             </StackPanel>
                             <StackPanel>
+                                <TextBlock Text="窗口切换" Style="{StaticResource SectionStyle}" />
+                                <local:ToggleTile x:Name="SwitcherSwitch" Title="Alt + Tab 使用玻璃切换面板" SwitchName="玻璃窗口切换面板" Toggled="OnSwitcherToggled" Flat="True"
+                                                  Note="按住 Alt 再按 Tab，在屏幕中间选择窗口；松开 Alt 切换，Esc 取消。关闭后恢复 Windows 自带的切换界面。" />
+                            </StackPanel>
+                            <StackPanel>
                                 <TextBlock Text="Windows 动画" Style="{StaticResource SectionStyle}" />
                                 <local:ToggleTile x:Name="CalmSwitch" Title="关闭 Windows 自带的窗口动画" SwitchName="关闭 Windows 窗口动画" Toggled="OnCalmToggled" Flat="True"
                                                   Note="关闭窗口最小化、最大化时 Windows 自己的动画，屏幕上只留 H-Electric-glass 的动效；再关掉这个开关就恢复。" />

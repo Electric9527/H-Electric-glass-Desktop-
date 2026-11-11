@@ -36,6 +36,8 @@ add_executable(atrium_core WIN32
     shell/start_layout.cpp
     shell/win_key.cpp
     shell/voice_input.cpp
+    shell/alt_tab.cpp
+    ui/window_switcher.cpp
     shell/drop_update.cpp
     shell/app_registration.cpp
     shell/update_checker.cpp

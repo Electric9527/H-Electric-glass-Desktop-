@@ -784,6 +784,7 @@ public sealed partial class MainWindow : Window
         FeishuSwitch.IsOn = _current.NotifyFeishu;
         QQSwitch.IsOn = _current.NotifyQQ;
         CalmSwitch.IsOn = _current.CalmWindows;
+        SwitcherSwitch.IsOn = _current.GlassSwitcher;
         BilibiliSwitch.IsOn = _current.NotifyBilibili;
         BarSwitch.IsOn = _current.Bar;
         UpdateBarModule();
@@ -1073,6 +1074,13 @@ public sealed partial class MainWindow : Window
     {
         if (_loading || sender is not RadioButton { Tag: string tag }) return;
         _current.AutoHide = tag;
+        Changed();
+    }
+
+    private void OnSwitcherToggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _current.GlassSwitcher = SwitcherSwitch.IsOn;
         Changed();
     }
 

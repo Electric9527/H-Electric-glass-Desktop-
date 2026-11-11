@@ -115,6 +115,7 @@ std::wstring Settings::ToJson() const
     o.SetNamedValue(L"notifyFeishu", json::JsonValue::CreateBooleanValue(notifyFeishu));
     o.SetNamedValue(L"notifyQQ", json::JsonValue::CreateBooleanValue(notifyQQ));
     o.SetNamedValue(L"calmWindows", json::JsonValue::CreateBooleanValue(calmWindows));
+    o.SetNamedValue(L"glassSwitcher", json::JsonValue::CreateBooleanValue(glassSwitcher));
     o.SetNamedValue(L"notifyBilibili", json::JsonValue::CreateBooleanValue(notifyBilibili));
     o.SetNamedValue(L"bar", json::JsonValue::CreateBooleanValue(bar));
     o.SetNamedValue(L"widgets", json::JsonValue::CreateBooleanValue(widgets));
@@ -204,6 +205,7 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
     flag(L"notifyFeishu", s.notifyFeishu);
     flag(L"notifyQQ", s.notifyQQ);
     flag(L"calmWindows", s.calmWindows);
+    flag(L"glassSwitcher", s.glassSwitcher);
     flag(L"notifyBilibili", s.notifyBilibili);
     flag(L"bar", s.bar);
     flag(L"widgets", s.widgets);
