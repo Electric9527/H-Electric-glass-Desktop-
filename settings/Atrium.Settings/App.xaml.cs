@@ -13,7 +13,7 @@ public partial class App : Application
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int MessageBox(IntPtr hwnd, string text, string title, uint type);
     internal const uint OpenAboutMessage = 0x8000 + 31;
 
-    public const string WindowTitle = "Atrium 设置";
+    public const string WindowTitle = "H-Electric-glass 设置";
     private static Mutex? s_instance;
     private MainWindow? _window;
 
@@ -56,7 +56,7 @@ public partial class App : Application
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
                 if (!same)
                 {
-                    MessageBox(IntPtr.Zero, "另一位置的 Atrium 设置正在运行。请先关闭该窗口，再打开本目录中的设置中心。", "Atrium", 0x40);
+                    MessageBox(IntPtr.Zero, "另一位置的 H-Electric-glass 设置正在运行。请先关闭该窗口，再打开本目录中的设置中心。", "H-Electric-glass", 0x40);
                     Exit();
                     return;
                 }

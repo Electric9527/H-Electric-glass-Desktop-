@@ -199,7 +199,7 @@ public sealed partial class MainWindow
         };
         var foot = new StackPanel { Spacing = 8 };
         foot.Children.Add(Text("技术细节", "TitleStyle"));
-        var why = Text("动画的曲线与时长、材质预设的每个参数、字号与字重、圆角与间距：与 Atrium 运行时使用的是同一份数值。", "RowNoteStyle");
+        var why = Text("动画的曲线与时长、材质预设的每个参数、字号与字重、圆角与间距：与 H-Electric-glass 运行时使用的是同一份数值。", "RowNoteStyle");
         why.Margin = new Thickness(0, 0, 0, 6);
         foot.Children.Add(why);
         foot.Children.Add(toggle);

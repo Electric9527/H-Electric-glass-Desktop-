@@ -664,7 +664,7 @@ void Notifications::PaintCard(Canvas& c, const Notice& n, D2D1_RECT_F r, int ind
     if (n.unread)
         c.Circle(tx + 3, ty + 8, 3.5f, t.accent);
     float nameX = tx + (n.unread ? 12 : 0);
-    std::wstring app = n.app.empty() ? L"Atrium" : n.app;
+    std::wstring app = n.app.empty() ? L"H-Electric-glass" : n.app;
     if (n.count > 1)
         app += L"  ·  " + std::to_wstring(n.count) + L" 条";
     c.Text(app, D2D1::RectF(nameX, ty, x + w - 170, ty + 16), 12, t.subtext, DWRITE_FONT_WEIGHT_SEMI_BOLD);

@@ -682,7 +682,7 @@ public sealed partial class MainWindow : Window
             if (start)
             {
                 using var launched = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
-                if (!await _client.ConnectAsync(8000)) throw new TimeoutException("未能连接 Atrium，请稍后重试。");
+                if (!await _client.ConnectAsync(8000)) throw new TimeoutException("未能连接 H-Electric-glass，请稍后重试。");
                 bool dirty = !_current.SameAs(_saved);
                 var (saved, current) = await _client.GetAsync();
                 _saved = saved;
@@ -698,7 +698,7 @@ public sealed partial class MainWindow : Window
                 using var quit = Process.Start(new ProcessStartInfo(exe, "--exit") { UseShellExecute = false, CreateNoWindow = true })
                     ?? throw new InvalidOperationException("未能发送退出请求。");
                 await quit.WaitForExitAsync();
-                if (quit.ExitCode != 0) throw new InvalidOperationException("Atrium 尚未退出，请稍后重试。");
+                if (quit.ExitCode != 0) throw new InvalidOperationException("H-Electric-glass 尚未退出，请稍后重试。");
                 _client.Disconnect(coreStopped: true);
             }
         }

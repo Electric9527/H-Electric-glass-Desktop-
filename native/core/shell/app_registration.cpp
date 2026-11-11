@@ -32,7 +32,7 @@ void RegisterApplication(const std::wstring& directory)
 
     constexpr auto registration = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Atrium";
     const std::pair<const wchar_t*, std::wstring> fields[] = {
-        {L"DisplayName", L"Atrium"}, {L"Publisher", L"Atrium contributors"},
+        {L"DisplayName", L"H-Electric-glass Desktop"}, {L"Publisher", L"Atrium contributors"},
         {L"InstallLocation", directory}, {L"DisplayIcon", L"\"" + exe + L"\",0"},
         {L"UninstallString", L"\"" + exe + L"\" --uninstall"},
         {L"URLInfoAbout", L"https://github.com/wynter-yaxley/atrium-desktop"},

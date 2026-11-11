@@ -12,7 +12,7 @@ internal static class ReleaseInstaller
 {
     internal sealed record Prepared(string Tag, string Version, string Directory);
     internal static string InstallDirectory => Path.GetDirectoryName(CoreClient.CoreExe()
-        ?? throw new IOException("找不到 Atrium 程序目录。"))!;
+        ?? throw new IOException("找不到 H-Electric-glass 程序目录。"))!;
     internal static string CacheDirectory => Path.Combine(Path.GetDirectoryName(CoreClient.SettingsPath)!, "Updates",
         Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(InstallDirectory.ToUpperInvariant())))[..16]);
     private static string StatePath => Path.Combine(CacheDirectory, "ready.json");

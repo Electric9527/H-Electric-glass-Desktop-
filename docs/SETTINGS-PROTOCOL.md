@@ -44,14 +44,14 @@
 | `desktopDisplay` | string | 显示器设备接口 ID，或空字符串 | `""` | 小组件与台前调度的屏幕，独立于 Dock；空值跟随系统主屏；切换前恢复原屏幕中台前调度收起的窗口 |
 | `taskbarApps` | string | `all` / `primaryAndWindow` / `window` | `all` | 运行中的应用分别显示在所有任务栏、系统主屏和窗口所在屏、或仅窗口所在屏；固定应用保留，运行标记和预览只使用符合规则的窗口 |
 | `taskbarRightPrimaryOnly` | bool | | false | 仅在系统主屏显示任务栏右侧元素；副屏隐藏托盘、状态圆环、时钟日期、通知入口及分隔线，不保留占位；各元素原有的显示开关保持不变，也适用于跨屏唤出和固定显示器模式 |
-| `windowsContextMenu` | bool | | true | 图标右键菜单显示 Windows 风格的内容：程序自己的跳转列表（已固定、常用、最近使用的文件夹和工作区、任务），以及“以管理员身份运行”“属性”；关闭后恢复 Atrium 原来的菜单。旧配置没有这一项时为开启 |
+| `windowsContextMenu` | bool | | true | 图标右键菜单显示 Windows 风格的内容：程序自己的跳转列表（已固定、常用、最近使用的文件夹和工作区、任务），以及“以管理员身份运行”“属性”；关闭后恢复 H-Electric-glass 原来的菜单。旧配置没有这一项时为开启 |
 | `notifyTimeout` | number | 3–30 s | 6 | 通知弹出后停留的时间（指针停在卡片上时不计时） |
 | `notifyPlacement` | string | `dock` / `topRight` / `topCenter` | `dock` | 默认在任务栏上方堆叠；右上角模式下，弹窗和铃铛打开的通知中心均固定在系统主屏工作区右上角，新通知从右侧淡入，已有通知平滑下移；通知中心的操作区在列表上方，超出屏幕高度可滚动；顶部居中模式（`topCenter`）与右上角相同，但位于主屏工作区顶部正中，新通知从卡片中心按弹出弹簧放大出现，关闭时缩回中心；本修改版首次启动时把 `dock` 改为 `topCenter` 一次 |
 | `notifyHideBody` | bool | | false | 隐藏通知正文；同时把通知窗口排除在截图和屏幕共享之外 |
-| `notifyListener` | bool | | true | 通过 UserNotificationListener 把 Windows 通知显示为 Atrium 卡片（系统横幅仍会出现，除非用户在 Windows 里关闭该应用的横幅） |
+| `notifyListener` | bool | | true | 通过 UserNotificationListener 把 Windows 通知显示为 H-Electric-glass 卡片（系统横幅仍会出现，除非用户在 Windows 里关闭该应用的横幅） |
 | `notifyWeChat` | bool | | true | 实验：读取微信窗口的会话列表（UI 自动化，只读），非免打扰会话有新的未读消息时显示卡片 |
-| `notifyFeishu` | bool | | true | 读取飞书自己的消息弹窗里的文字（UI 自动化，只读），同时显示为 Atrium 卡片 |
-| `notifyQQ` | bool | | true | QQ 消息显示为 Atrium 卡片：只读 QQ 自己的消息弹窗（屏幕角落的小 Chromium 窗口）里的文字；只闪烁任务栏按钮时提醒一次；10 秒内已有同一应用的卡片（包括它发出的 Windows 通知）时不重复 |
+| `notifyFeishu` | bool | | true | 读取飞书自己的消息弹窗里的文字（UI 自动化，只读），同时显示为 H-Electric-glass 卡片 |
+| `notifyQQ` | bool | | true | QQ 消息显示为 H-Electric-glass 卡片：只读 QQ 自己的消息弹窗（屏幕角落的小 Chromium 窗口）里的文字；只闪烁任务栏按钮时提醒一次；10 秒内已有同一应用的卡片（包括它发出的 Windows 通知）时不重复 |
 | `notifyBilibili` | bool | | true | 哔哩哔哩客户端的消息，规则同 `notifyQQ` |
 | `bar` | bool | | true | 玻璃任务栏模块：关闭时栏的窗口隐藏，开始菜单、托盘、控制中心、日历与通知中心随之关闭，通知来源停止接收（Windows 自己的横幅照常出现），`hideTaskbar` 与 `hideBanners` 不再生效；渲染线程继续为小组件与菜单绘制玻璃。与 `widgets`、`stageManager` 互不依赖 |
 | `widgets` | bool | | true | 桌面小组件；布局由 Core 存于 `widgets.json`（D35）。中号时钟和中号数字时钟的世界时钟城市可在小组件右键菜单“更改城市…”里逐个换，存为该小组件的 `cities`（城市名数组，按显示顺序；没有这一项时用北京、东京、伦敦、纽约，数字时钟用后三个） |
@@ -62,9 +62,9 @@
 | `stageOnRight` | bool | | false | 台前调度的窗口放在屏幕右侧；默认左侧 |
 | `stageAutoHide` | bool | | false | 悬停弹出：台前调度平时隐藏，指针碰到那一侧的屏幕边缘时才滑出；默认常驻：压在侧边位置上的普通窗口来到前台时挪到旁边；窗口最大化、被拖到上面或应用铺满整个屏幕时让开（指针碰到屏幕边缘时滑出） |
 | `stageMinimize` | bool | | false | 窗口最小化到台前调度：前面的窗口最小化后，它的画面直接飞进一侧的卡片（不播放系统的最小化动画），点卡片换回前面；默认关闭（最小化的窗口不进台前调度） |
-| `hideTaskbar` | bool | | false | Atrium 运行时隐藏系统任务栏（并设为自动隐藏），关闭或退出时恢复（D37）。隐藏期间另有一个看护进程（`Atrium.exe --guard <pid>`）：Atrium 无论怎样结束（崩溃、被结束进程），它都立刻还原任务栏、自动隐藏设置和请勿打扰；Atrium 约 15 秒无响应时先显示任务栏 |
-| `hideBanners` | bool | | false | 打开“请勿打扰”（仅闹钟）去掉系统横幅，通知仍显示为 Atrium 卡片；关闭或退出时恢复（D37） |
-| `winKeyStart` | bool | | false | 单独按下 Win 键时打开 Atrium 的开始菜单，Windows 的开始菜单不出现。低级键盘钩子在单独的线程上先扣下 Win 键：后面跟了别的键（Win + E 等）就把两个键一起交给 Windows，单独松开则 Windows 始终没有收到它。前台是管理员权限的窗口时（补发的按键送不进去）不拦截。Win + L 由系统在钩子之前处理，不受影响。需要打开 `bar` |
+| `hideTaskbar` | bool | | false | H-Electric-glass 运行时隐藏系统任务栏（并设为自动隐藏），关闭或退出时恢复（D37）。隐藏期间另有一个看护进程（`Atrium.exe --guard <pid>`）：H-Electric-glass 无论怎样结束（崩溃、被结束进程），它都立刻还原任务栏、自动隐藏设置和请勿打扰；H-Electric-glass 约 15 秒无响应时先显示任务栏 |
+| `hideBanners` | bool | | false | 打开“请勿打扰”（仅闹钟）去掉系统横幅，通知仍显示为 H-Electric-glass 卡片；关闭或退出时恢复（D37） |
+| `winKeyStart` | bool | | false | 单独按下 Win 键时打开 H-Electric-glass 的开始菜单，Windows 的开始菜单不出现。低级键盘钩子在单独的线程上先扣下 Win 键：后面跟了别的键（Win + E 等）就把两个键一起交给 Windows，单独松开则 Windows 始终没有收到它。前台是管理员权限的窗口时（补发的按键送不进去）不拦截。Win + L 由系统在钩子之前处理，不受影响。需要打开 `bar` |
 | `winNumbers` | bool | | false | Win + 1…9、0 打开栏上第 1…10 个应用，和点按它一样（没开就启动，开着就切换过去）。与 `winKeyStart` 共用同一个键盘钩子；只开这一项时，单独按 Win 仍交给 Windows。带 Shift、Ctrl、Alt 的组合照常交给 Windows。需要打开 `bar` |
 | `startOnLogin` | bool | | true | 当前用户开机自启：任务计划程序里当前用户的登录任务 `Atrium Startup-<SID>`（登录时随会话启动，不在 Explorer 的 Run 项队列里排队）；注册失败时退回 HKCU 的 Run 项。正式安装每次启动时，若此值为开且 Run 项没有在任务管理器里被关闭，就把旧版本的 Run 项换成登录任务；开发构建不修改开机项 |
 | `pins` | array | | 见下 | 固定的应用，按顺序显示 |

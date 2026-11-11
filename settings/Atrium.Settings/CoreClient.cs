@@ -71,7 +71,7 @@ internal sealed class CoreClient : IDisposable
             if (expected == null || !string.Equals(process.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase))
             {
                 _connectionLost = true;
-                ConnectionError = "另一位置的 Atrium 正在运行，未连接本目录中的核心。";
+                ConnectionError = "另一位置的 H-Electric-glass 正在运行，未连接本目录中的核心。";
                 pipe.Dispose();
                 return false;
             }
@@ -189,7 +189,7 @@ internal sealed class CoreClient : IDisposable
     public async Task<string?> AddWidgetAsync(string kind, string size)
     {
         var r = await RequestAsync(new JsonObject { ["op"] = "add-widget", ["kind"] = kind, ["size"] = size });
-        if (r == null) return "Atrium 未运行";
+        if (r == null) return "H-Electric-glass 未运行";
         return r["op"]?.GetValue<string>() == "ok" ? null : r["message"]?.GetValue<string>() ?? "error";
     }
 
@@ -260,7 +260,7 @@ internal sealed class CoreClient : IDisposable
             else
             {
                 if (run.GetValue("Atrium") is string owner && !string.Equals(owner, command, StringComparison.OrdinalIgnoreCase))
-                    throw new IOException("该开机启动项属于另一位置的 Atrium");
+                    throw new IOException("该开机启动项属于另一位置的 H-Electric-glass");
                 RemoveLogonTask(exe);
                 run.DeleteValue("Atrium", throwOnMissingValue: false);
             }
@@ -287,7 +287,7 @@ internal sealed class CoreClient : IDisposable
             catch (COMException e) when (e.HResult == unchecked((int)0x80070002)) { return; } // no task
             string command = ((string)task.Definition.Actions.Item(1).Path).Trim('"');
             if (!string.Equals(command, exe, StringComparison.OrdinalIgnoreCase))
-                throw new IOException("该开机启动项属于另一位置的 Atrium");
+                throw new IOException("该开机启动项属于另一位置的 H-Electric-glass");
             folder.DeleteTask(name, 0);
         }
         catch (COMException e)

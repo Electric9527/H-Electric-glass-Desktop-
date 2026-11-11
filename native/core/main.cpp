@@ -200,7 +200,7 @@ void AddTrayIcon()
     nid.uCallbackMessage = WM_TRAY;
     nid.hIcon = static_cast<HICON>(LoadImageW(g_app.instance, MAKEINTRESOURCEW(IDI_ATRIUM), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                               GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-    wcscpy_s(nid.szTip, L"Atrium");
+    wcscpy_s(nid.szTip, L"H-Electric-glass Desktop");
     g_app.trayAdded = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     DestroyIcon(nid.hIcon);
     if (!g_app.trayAdded) {
@@ -478,7 +478,7 @@ void ShowMenu(POINT pt)
     entries.push_back({L"台前调度", kCmdStage, g_app.stage->Enabled()});
     entries.push_back({});
     entries.push_back({L"发送测试通知", kCmdTestNotice}); // shows where and how the cards pop up
-    entries.push_back({L"退出 Atrium", kCmdExit});
+    entries.push_back({L"退出 H-Electric-glass", kCmdExit});
     g_app.menu->Open(std::move(entries), pt, MenuPlace::Above, [](int cmd) {
         switch (cmd) {
         case kCmdSettings:
@@ -510,7 +510,7 @@ void ShowMenu(POINT pt)
             if (g_app.notes) {
                 Notice n;
                 n.source = L"atrium";
-                n.app = L"Atrium";
+                n.app = L"H-Electric-glass";
                 n.title = L"测试通知";
                 n.body = L"新消息会在这里弹出";
                 g_app.notes->Post(n);
@@ -899,7 +899,7 @@ void ShowItemMenu(const std::wstring& key, POINT pt)
     std::wstring location = g_app.tasks->FileLocation(key);
     if (!location.empty())
         entries.push_back({L"打开文件所在的位置", kCmdOpenLocation});
-    entries.push_back({it->pinned ? L"从 Atrium 取消固定" : L"固定到 Atrium", int(it->pinned ? kCmdUnpin : kCmdPin)});
+    entries.push_back({it->pinned ? L"从 H-Electric-glass 取消固定" : L"固定到 H-Electric-glass", int(it->pinned ? kCmdUnpin : kCmdPin)});
     if (windowsEntries && !appPath.empty())
         entries.push_back({L"属性", kCmdProperties});
     if (!it->windows.empty())
@@ -1429,7 +1429,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
             g_readyEvent = startupArguments[i + 1];
     LocalFree(startupArguments);
     if (wcscmp(cmdLine, L"--uninstall") == 0) {
-        if (MessageBoxW(nullptr, L"卸载 Atrium？个人设置和桌面小组件布局将会保留。", L"Atrium",
+        if (MessageBoxW(nullptr, L"卸载 H-Electric-glass？个人设置和桌面小组件布局将会保留。", L"H-Electric-glass Desktop",
                         MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND) != IDYES)
             return 0;
         wchar_t system[MAX_PATH]{};
@@ -1472,7 +1472,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
         // Already running: launching it again opens the settings instead.
         if (HWND other = FindWindowW(kHostClass, nullptr)) {
             if (SameCoreExecutable(other)) PostMessageW(other, WM_OPEN_SETTINGS, 0, 0);
-            else MessageBoxW(nullptr, L"另一位置的 Atrium 正在运行。请先退出该实例，再启动本目录中的版本。", L"Atrium", MB_OK | MB_ICONINFORMATION);
+            else MessageBoxW(nullptr, L"另一位置的 H-Electric-glass 正在运行。请先退出该实例，再启动本目录中的版本。", L"H-Electric-glass Desktop", MB_OK | MB_ICONINFORMATION);
         }
         CloseHandle(mutex);
         return 0;
