@@ -1,3 +1,11 @@
+# H-Electric-glass Desktop
+
+<img src="assets/h-electric-glass.png" width="96" alt="icon">
+
+本仓库是基于 Atrium Desktop 2.5.0（MIT）独立发展的版本，说明见 [GLASS.md](GLASS.md)。以下为原项目的说明。
+
+---
+
 <p align="center">
   <img src="assets/atrium-256.png" alt="Atrium Desktop" width="112">
 </p>
