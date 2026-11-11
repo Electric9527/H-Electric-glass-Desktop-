@@ -55,7 +55,9 @@ private:
     void Paint(Canvas& c);
     bool Message(UINT m, WPARAM w, LPARAM l, LRESULT& result);
     void Layout(float scale, float maxWidthDip);
-    void Place();          // the surface's rectangle for the cards, above the anchor
+    // The surface's rectangle for the cards, above the anchor. `repop`: another app's windows replace the
+    // open preview's, so it pops out of the new anchor again, as a popup opens.
+    void Place(bool repop = false);
     void UpdateThumbs();   // DWM: where the pictures go, how visible
     void DropThumbs();
     void SetWindows(const std::vector<HWND>& windows);

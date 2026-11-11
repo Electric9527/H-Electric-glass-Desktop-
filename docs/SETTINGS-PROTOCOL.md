@@ -27,6 +27,7 @@
 | `startTray` | bool | | true | 开始菜单底部胶囊里的托盘按钮 |
 | `startStatus` | bool | | true | 开始菜单底部胶囊里的网络、音量和电池按钮 |
 | `startSize` | string | `small` / `medium` / `large` | 无 | 开始菜单的大小（设置中心 › 任务栏 › 开始菜单，或在菜单里拖握把、右键选择）。没有这一项时沿用 `start.json` 里的大小，Core 启动时把它写进来 |
+| `showVoice` | bool | | true | 语音输入入口（麦克风）：点击时向系统发送微信输入法的语音快捷键 Ctrl+Win+Shift（输入法里设为“再次按快捷键结束”的那个）；按键发给当前有键盘焦点的窗口，栏不抢焦点 |
 | `showStatus` | bool | | true | 状态环与控制中心入口 |
 | `showNotifications` | bool | | true | 通知入口；关闭入口不关闭通知来源 |
 | `textColor` | string | `auto` / `light` / `dark` | `auto` | 文字颜色；`auto` 按玻璃下方的实际亮度选择 |
@@ -45,11 +46,13 @@
 | `taskbarRightPrimaryOnly` | bool | | false | 仅在系统主屏显示任务栏右侧元素；副屏隐藏托盘、状态圆环、时钟日期、通知入口及分隔线，不保留占位；各元素原有的显示开关保持不变，也适用于跨屏唤出和固定显示器模式 |
 | `windowsContextMenu` | bool | | true | 图标右键菜单显示 Windows 风格的内容：程序自己的跳转列表（已固定、常用、最近使用的文件夹和工作区、任务），以及“以管理员身份运行”“属性”；关闭后恢复 Atrium 原来的菜单。旧配置没有这一项时为开启 |
 | `notifyTimeout` | number | 3–30 s | 6 | 通知弹出后停留的时间（指针停在卡片上时不计时） |
-| `notifyPlacement` | string | `dock` / `topRight` | `dock` | 默认在任务栏上方堆叠；右上角模式下，弹窗和铃铛打开的通知中心均固定在系统主屏工作区右上角，新通知从右侧淡入，已有通知平滑下移；通知中心的操作区在列表上方，超出屏幕高度可滚动 |
+| `notifyPlacement` | string | `dock` / `topRight` / `topCenter` | `dock` | 默认在任务栏上方堆叠；右上角模式下，弹窗和铃铛打开的通知中心均固定在系统主屏工作区右上角，新通知从右侧淡入，已有通知平滑下移；通知中心的操作区在列表上方，超出屏幕高度可滚动；顶部居中模式（`topCenter`）与右上角相同，但位于主屏工作区顶部正中，新通知从卡片中心按弹出弹簧放大出现，关闭时缩回中心；本修改版首次启动时把 `dock` 改为 `topCenter` 一次 |
 | `notifyHideBody` | bool | | false | 隐藏通知正文；同时把通知窗口排除在截图和屏幕共享之外 |
 | `notifyListener` | bool | | true | 通过 UserNotificationListener 把 Windows 通知显示为 Atrium 卡片（系统横幅仍会出现，除非用户在 Windows 里关闭该应用的横幅） |
 | `notifyWeChat` | bool | | true | 实验：读取微信窗口的会话列表（UI 自动化，只读），非免打扰会话有新的未读消息时显示卡片 |
 | `notifyFeishu` | bool | | true | 读取飞书自己的消息弹窗里的文字（UI 自动化，只读），同时显示为 Atrium 卡片 |
+| `notifyQQ` | bool | | true | QQ 消息显示为 Atrium 卡片：只读 QQ 自己的消息弹窗（屏幕角落的小 Chromium 窗口）里的文字；只闪烁任务栏按钮时提醒一次；10 秒内已有同一应用的卡片（包括它发出的 Windows 通知）时不重复 |
+| `notifyBilibili` | bool | | true | 哔哩哔哩客户端的消息，规则同 `notifyQQ` |
 | `bar` | bool | | true | 玻璃任务栏模块：关闭时栏的窗口隐藏，开始菜单、托盘、控制中心、日历与通知中心随之关闭，通知来源停止接收（Windows 自己的横幅照常出现），`hideTaskbar` 与 `hideBanners` 不再生效；渲染线程继续为小组件与菜单绘制玻璃。与 `widgets`、`stageManager` 互不依赖 |
 | `widgets` | bool | | true | 桌面小组件；布局由 Core 存于 `widgets.json`（D35）。中号时钟和中号数字时钟的世界时钟城市可在小组件右键菜单“更改城市…”里逐个换，存为该小组件的 `cities`（城市名数组，按显示顺序；没有这一项时用北京、东京、伦敦、纽约，数字时钟用后三个） |
 | `widgetsOnRight` | bool | | false | 小组件逻辑网格从右侧排布；切换时镜像现有列，不改写 `widgets.json` |

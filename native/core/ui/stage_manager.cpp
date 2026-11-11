@@ -1106,7 +1106,7 @@ float StageManager::Reveal(int index, double nowMs) const
 
 bool StageManager::Animate(double nowMs)
 {
-    const float dt = lastStep_ > 0 ? float(std::clamp((nowMs - lastStep_) / 1000.0, 0.0, 0.05)) : 0.f;
+    const float dt = lastStep_ > 0 ? float(motion::FrameDt(nowMs, lastStep_) / 1000.0) : 0.f; // from rest: one frame
     lastStep_ = nowMs;
     bool moving = false;
     auto step = [&](Entry& e) {

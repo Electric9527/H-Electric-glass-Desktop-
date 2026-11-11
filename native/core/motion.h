@@ -7,9 +7,14 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace atrium::motion {
+
+// Windows' "animation effects" setting is off (Settings > Accessibility > Visual effects): states land at
+// once and popups only fade, without scaling or springs. Set by the core at start and when the setting changes.
+inline std::atomic<bool> reduced{false};
 
 // Cubic ease-out over t in 0..1: fast start, soft landing.
 inline float EaseOut(float t)
@@ -26,9 +31,24 @@ inline float EaseOutBack(float t, float overshoot)
     return 1 + (overshoot + 1) * t * t * t + overshoot * t * t;
 }
 
+// The time one frame advances an animation, in ms. While frames keep coming it is the time since the last
+// one; after a pause it is one frame's worth: a surface at rest paints nothing, so the time since its last
+// frame was idle, and counting it would jump the first frame of the next animation most of its way (a
+// magnified bar snapping back, a hover wash appearing at once). `first`: the very first frame.
+constexpr double kFrameMs = 1000.0 / 60, kResumeMs = 50;
+inline double FrameDt(double nowMs, double lastMs, double first = kFrameMs)
+{
+    if (lastMs <= 0)
+        return first;
+    const double d = nowMs - lastMs;
+    return d < 0 ? 0 : d > kResumeMs ? kFrameMs : d;
+}
+
 // Moves v towards target by the share `rate` per second closes, whatever the frame time.
 inline float Approach(float v, float target, double dtMs, float rate)
 {
+    if (reduced)
+        return target;
     return v + (target - v) * (1 - std::exp(-float(dtMs) / 1000.f * rate));
 }
 
@@ -43,7 +63,7 @@ struct Follow {
     bool moving = false;
     float Step(bool on, double nowMs)
     {
-        const double dt = lastMs > 0 ? std::clamp(nowMs - lastMs, 0.0, 100.0) : 0;
+        const double dt = FrameDt(nowMs, lastMs, 0);
         lastMs = nowMs;
         const float target = on ? 1.f : 0.f;
         value = Approach(value, target, dt, on ? kHoverIn : kHoverOut);
@@ -62,6 +82,10 @@ struct Spring {
     // closed form: a late frame lands exactly where a punctual one would.
     void Step(float& x, float& v, float target, float dt) const
     {
+        if (reduced) {
+            x = target, v = 0;
+            return;
+        }
         const float w0 = 6.2831853f / std::max(response, 0.01f), z = std::max(damping, 0.f);
         const float y0 = x - target, v0 = v;
         float y, vy;

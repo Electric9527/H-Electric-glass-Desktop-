@@ -1,12 +1,19 @@
 name: build
 
+# Atrium Glass: this repository's own source, built on every push. The zip is published as a release
+# (glass-<run>) and kept on the latest-build branch; the log goes to the build-logs branch.
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: [atrium-glass, main]
+    paths-ignore: ['**.md']
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   package:
@@ -18,9 +25,59 @@ jobs:
           global-json-file: global.json
       - name: Build native, settings and the portable package
         shell: pwsh
-        run: ./tools/build.ps1 -Zip
+        run: |
+          $log = Join-Path $env:GITHUB_WORKSPACE 'build.log'
+          try { ./tools/build.ps1 -Zip | Tee-Object -FilePath $log }
+          catch { ($_ | Out-String) | Add-Content $log; throw }
       - uses: actions/upload-artifact@v7
         with:
           name: Atrium-win-x64
           path: dist/*.zip
           if-no-files-found: error
+      - name: Publish the zip as a release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
+          gh release create "glass-${{ github.run_number }}" $zip.FullName --repo "${{ github.repository }}" --target ${{ github.sha }} `
+              --title "Atrium Glass build ${{ github.run_number }}" --notes "Built from ${{ github.sha }}."
+      - name: Keep the zip on the latest-build branch
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
+          $tmp = Join-Path $env:RUNNER_TEMP 'latest-build'
+          New-Item -ItemType Directory -Force $tmp | Out-Null
+          Copy-Item $zip.FullName (Join-Path $tmp 'Atrium-win-x64.zip')
+          Set-Content -Path (Join-Path $tmp 'RELEASE.txt') -Value "glass-${{ github.run_number }} ${{ github.sha }}" -Encoding ascii
+          $url = "https://x-access-token:$($env:GH_TOKEN)@github.com/${{ github.repository }}.git"
+          git -C $tmp init -b latest-build
+          git -C $tmp config user.name 'github-actions[bot]'
+          git -C $tmp config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C $tmp add -A
+          git -C $tmp commit -m "latest build: glass-${{ github.run_number }}"
+          git -C $tmp push --force $url latest-build
+      - name: Save the build log to the build-logs branch
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $tmp = Join-Path $env:RUNNER_TEMP 'logs'
+          $url = "https://x-access-token:$($env:GH_TOKEN)@github.com/${{ github.repository }}.git"
+          git clone --depth 1 --branch build-logs $url $tmp 2>$null
+          if (-not (Test-Path (Join-Path $tmp '.git'))) { New-Item -ItemType Directory -Force $tmp | Out-Null; git -C $tmp init -b build-logs; git -C $tmp remote add origin $url }
+          $log = Join-Path $env:GITHUB_WORKSPACE 'build.log'
+          $lines = if (Test-Path $log) { Get-Content $log -Tail 400 } else { @('(no build.log)') }
+          Set-Content -Path (Join-Path $tmp 'latest.log') -Value (@("glass run ${{ github.run_number }} | status ${{ job.status }} | ${{ github.sha }}", '') + $lines) -Encoding utf8
+          git -C $tmp config user.name 'github-actions[bot]'
+          git -C $tmp config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C $tmp add -A
+          git -C $tmp commit -m "glass log: run ${{ github.run_number }} (${{ job.status }})"
+          git -C $tmp push origin build-logs

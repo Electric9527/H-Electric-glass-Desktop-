@@ -41,6 +41,7 @@ struct Settings {
     bool autoWidth = true;           // shrink to the content
     bool showClock = true;
     bool showTray = true;
+    bool showVoice = true;           // a microphone entry: WeChat Input Method's voice input (its floating bar's microphone)
     bool showStatus = true;
     bool showNotifications = true;
     bool showRunning = true;
@@ -61,11 +62,14 @@ struct Settings {
     bool windowsContextMenu = true;
     // Notifications (Atrium's own cards above the bell).
     double notifyTimeout = 6;        // seconds a popup stays (3..30)
-    std::wstring notifyPlacement = L"dock"; // dock (default) | topRight (system primary)
+    std::wstring notifyPlacement = L"dock"; // dock (default) | topRight (system primary) | topCenter (system primary)
     bool notifyHideBody = false;     // privacy: no message text; cards excluded from screen capture
     bool notifyListener = true;      // Windows notifications as Atrium cards (UserNotificationListener)
     bool notifyFeishu = true;        // Feishu messages as Atrium cards (its own popup, read through UI Automation)
     bool notifyWeChat = true;        // WeChat messages as Atrium cards (its chat list, read through UI Automation)
+    bool calmWindows = false;        // Windows' own minimise/maximise animation off, so only Atrium's motion shows
+    bool notifyQQ = true;            // QQ messages as Atrium cards (its popup, or its flashing taskbar button)
+    bool notifyBilibili = true;      // the bilibili client's messages as Atrium cards (likewise)
     // Three independent modules: the bar (with its popups and Atrium's notification cards), the
     // desktop widgets and Stage Manager. Any of them may run alone.
     bool bar = true;                 // the glass bar; off: Windows' own taskbar and banners stay in charge

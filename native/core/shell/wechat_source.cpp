@@ -18,6 +18,7 @@ namespace {
 struct Row {
     std::wstring chat;    // the chat's name
     std::wstring summary; // the newest message as the list shows it
+    std::wstring time;    // as the list shows it: "17:06", "昨天", ...
     int unread = 0;
     bool muted = false;
 };
@@ -74,10 +75,24 @@ Row Parse(const std::wstring& name)
                 l = Trim(l.substr(close + 2));
             }
         }
-        if (!l.empty() && r.summary.empty() && !IsTime(l))
+        if (!l.empty() && IsTime(l) && r.time.empty())
+            r.time = l;
+        else if (!l.empty() && r.summary.empty() && !IsTime(l))
             r.summary = l;
     }
     return r;
+}
+
+// A row's time is today's "HH:MM" within the last two minutes: its newest message has just come.
+bool JustNow(const std::wstring& t)
+{
+    if (t.size() < 4 || t.size() > 5 || t.find(L':') == std::wstring::npos)
+        return false;
+    const int h = _wtoi(t.c_str()), m = _wtoi(t.c_str() + t.find(L':') + 1);
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    const int diff = (now.wHour * 60 + now.wMinute) - (h * 60 + m);
+    return diff >= 0 && diff <= 2;
 }
 
 // WeChat's program, from one of its processes.
@@ -239,9 +254,13 @@ void WeChatSource::Run()
                     for (size_t i = 0; i < rows.size(); ++i) {
                         const auto& [key, r] = rows[i];
                         auto old = unread.find(key);
-                        // A chat not seen before counts only at the top of the list,
-                        // where a new message puts it (scrolling brings old ones in).
-                        bool rose = old != unread.end() ? r.unread > old->second : r.unread > 0 && i < 3;
+                        // A chat not seen before counts at the top of the list, where a new
+                        // message puts it (scrolling brings old ones in), or anywhere when its
+                        // time says the message came just now (pinned chats push it down).
+                        bool rose = old != unread.end() ? r.unread > old->second : r.unread > 0 && (i < 3 || JustNow(r.time));
+                        if (baseline && (old == unread.end() ? r.unread > 0 : r.unread != old->second))
+                            Log(L"wechat: row %zu unread %d (was %d) time \"%s\"%s%s", i, r.unread, old != unread.end() ? old->second : -1,
+                                r.time.c_str(), r.muted ? L" muted" : L"", rose && !r.muted ? L": a card" : L": no card");
                         if (baseline && rose && !r.muted) {
                             auto* n = new Notice();
                             n->source = L"wechat";

@@ -112,7 +112,7 @@ float BarPainter::MapX(float u) const
 
 bool BarPainter::Animate(const BarScene& scene, double nowMs)
 {
-    double dt = lastMs_ == 0 ? 16 : std::clamp(nowMs - lastMs_, 0.0, 100.0);
+    double dt = motion::FrameDt(nowMs, lastMs_, 16); // from rest: one frame, not the idle time
     lastMs_ = nowMs;
     bool moving = false;
     // A new window geometry: items jump to their places instead of sliding
@@ -401,7 +401,7 @@ void BarPainter::DrawContent(ID2D1DeviceContext2* d2d, const BarScene& scene, In
 
     usedBitmaps_.clear();
     for (const auto& it : scene.extras) { // the right group follows the clock's ink, the others the apps'
-        bool right = it.key == L"#notify" || it.key == L"#tray" || it.key == L"#status";
+        bool right = it.key == L"#notify" || it.key == L"#tray" || it.key == L"#status" || it.key == L"#voice";
         DrawItem(d2d, scene, it, brush.get(), right ? inkFor(darkText) : ink, right ? washFor(darkText) : wash);
     }
     for (const auto& [key, m] : motion_)
@@ -545,7 +545,8 @@ void BarPainter::DrawItem(ID2D1DeviceContext2* d2d, const BarScene& scene, const
     // bar's lower edge; full ink for the foreground app, amber when the app
     // asks for attention. It stays on the bar while the icon hops or grows.
     if (m.dot > 0.01f && lift < 0.99f) {
-        D2D1_COLOR_F c = it.attention ? D2D1::ColorF(1.0f, 0.70f, 0.18f, 0.98f) : InkColor(m.dotInk.Value(lastMs_));
+        // The right group's entries (the microphone) follow the clock's ink, as their symbols do.
+        D2D1_COLOR_F c = it.attention ? D2D1::ColorF(1.0f, 0.70f, 0.18f, 0.98f) : it.key == L"#voice" ? ink : InkColor(m.dotInk.Value(lastMs_));
         if (!it.active && !it.attention)
             c.a *= 0.45f;
         c.a *= (1 - lift) * m.appear * m.dot;

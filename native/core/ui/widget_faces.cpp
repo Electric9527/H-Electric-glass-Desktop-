@@ -1,7 +1,11 @@
 #include "ui/widget_faces.h"
 
+#include "ui/countdown.h"
+#include "ui/countdown_lunar.h"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <map>
 
 namespace atrium {
@@ -524,6 +528,409 @@ void PaintReminders(Canvas& c, const WidgetContent& r, const Pal& p, float W, fl
     }
 }
 
+// Countdown's editor, over the whole card, in four pages (‹ 1/4 › at the top right): 1 the name, typed,
+// and the date, chosen with the arrows of its year, month and day (a lunar month and day, every year, when
+// the entry is lunar); 2 the hours, minutes and seconds the day ends at, switched on or off; 3 a message of
+// at most 20 characters and the colour of the number; 4 switches: lunar calendar, reminder, pinned.
+// It is laid out in a 164-high frame, centred when the card is taller.
+void PaintCountdownEditor(Canvas& c, const WidgetContent& r, const Pal& p, float W, float H, std::vector<WidgetHit>& hits)
+{
+    const float top = std::max(0.f, (H - 164) / 2), inner = W - 2 * kPad;
+    const float gap = 6, y0 = top + 66, y1 = top + 118;
+    const int page = std::clamp(r.editPage, 0, 3);
+
+    // The page switch, in the title's row.
+    c.Text(L"‹", D2D1::RectF(W - kPad - 72, kPad - 6, W - kPad - 46, kPad + 22), 19, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 1);
+    c.Text(std::to_wstring(page + 1) + L"/4", D2D1::RectF(W - kPad - 46, kPad - 2, W - kPad - 22, kPad + 18), 11.5f, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 1);
+    c.Text(L"›", D2D1::RectF(W - kPad - 24, kPad - 6, W - kPad + 2, kPad + 22), 19, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 1);
+    hits.push_back({D2D1::RectF(W - kPad - 76, 0, W - kPad - 42, kPad + 30), L"pg-"});
+    hits.push_back({D2D1::RectF(W - kPad - 26, 0, W, kPad + 30), L"pg+"});
+
+    // A one-line field with a caret: the name (page 1) or the message (page 3).
+    auto textField = [&](const std::wstring& value, const wchar_t* placeholder, const wchar_t* id, bool counter) {
+        const D2D1_RECT_F field = D2D1::RectF(kPad, top + 34, W - kPad, top + 60);
+        c.Fill(field, 9, p.face);
+        float right = field.right - 9;
+        if (counter) {
+            const std::wstring n = std::to_wstring(CountdownLength(value)) + L"/" + std::to_wstring(kCountdownNoteMax);
+            c.Text(n, D2D1::RectF(field.right - 44, field.top, field.right - 8, field.bottom), 10.5f, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 2);
+            right = field.right - 46;
+        }
+        const D2D1_RECT_F text = D2D1::RectF(field.left + 9, field.top, right, field.bottom);
+        c.Text(value.empty() ? placeholder : value, text, 13.5f, value.empty() ? p.faint : p.text);
+        const float cx = std::min(text.left + c.TextWidth(value.substr(0, std::min(r.caret, value.size())), 13.5f), text.right - 2);
+        const D2D1_RECT_F caret = D2D1::RectF(cx, field.top + 5, cx + 1.5f, field.bottom - 5);
+        if (r.caretOn)
+            c.Fill(caret, 0.75f, p.orange);
+        hits.push_back({field, id});
+        hits.push_back({caret, L"caret"});
+    };
+    // A column with an arrow above and below its value.
+    auto picker = [&](float x0, float x1, const std::wstring& digits, const wchar_t* unit, const wchar_t* key, bool on) {
+        c.Fill(D2D1::RectF(x0, y0, x1, y1), 10, p.face);
+        c.Glyph(L"", D2D1::RectF(x0, y0 + 1, x1, y0 + 15), 10, on ? p.sub : p.faint);
+        c.Glyph(L"", D2D1::RectF(x0, y1 - 15, x1, y1 - 1), 10, on ? p.sub : p.faint);
+        c.Text(digits + unit, D2D1::RectF(x0, y0 + 14, x1, y1 - 14), 15, on ? p.text : p.faint, DWRITE_FONT_WEIGHT_SEMI_BOLD, 1);
+        if (on) {
+            hits.push_back({D2D1::RectF(x0, y0, x1, y0 + 20), std::wstring(key) + L"+"});
+            hits.push_back({D2D1::RectF(x0, y1 - 20, x1, y1), std::wstring(key) + L"-"});
+        }
+    };
+    // A row with a switch at its right, the whole row answering.
+    auto toggleRow = [&](float ry0, float ry1, const wchar_t* label, bool on, const wchar_t* id) {
+        const D2D1_RECT_F field = D2D1::RectF(kPad, ry0, W - kPad, ry1);
+        c.Fill(field, 9, p.face);
+        c.Text(label, D2D1::RectF(field.left + 9, field.top, field.right - 52, field.bottom), 13.5f, p.text);
+        const float tx1 = field.right - 9, tx0 = tx1 - 34, cy = (field.top + field.bottom) / 2;
+        c.Fill(D2D1::RectF(tx0, cy - 10, tx1, cy + 10), 10, on ? p.orange : p.track);
+        c.Circle(on ? tx1 - 10 : tx0 + 10, cy, 8, on ? p.onAccent : p.sub);
+        hits.push_back({field, id});
+    };
+    auto two = [](int v) {
+        std::wstring s = std::to_wstring(v);
+        return s.size() < 2 ? L"0" + s : s;
+    };
+
+    if (page == 0) {
+        textField(r.editName, L"名称", L"name", false);
+        // Year, month, day: the year's column is the widest. The year shows its last two digits
+        // ("27年"); the date saved keeps all four.
+        const float share = inner - 2 * gap;
+        const float widths[3] = {share * 0.42f, share * 0.29f, share * 0.29f};
+        const int values[3] = {r.editYear, r.editMonth, r.editDay};
+        const wchar_t* const units[3] = {L"年", L"月", L"日"};
+        const wchar_t* const keys[3] = {L"y", L"m", L"d"};
+        float x = kPad;
+        if (r.editLunar) { // a lunar month and day, every year: the year's column says so
+            picker(x, x + widths[0], L"每年", L"", keys[0], false);
+            x += widths[0] + gap;
+            picker(x, x + widths[1], LunarMonthName(r.editLunarMonth), L"", keys[1], true);
+            x += widths[1] + gap;
+            picker(x, x + widths[2], LunarDayName(r.editLunarDay), L"", keys[2], true);
+        } else {
+            for (int i = 0; i < 3; ++i) {
+                picker(x, x + widths[i], i == 0 ? two(values[i] % 100) : std::to_wstring(values[i]), units[i], keys[i], true);
+                x += widths[i] + gap;
+            }
+        }
+    } else if (page == 1) {
+        // The switch: with it off the entry counts days only, as before.
+        toggleRow(top + 34, top + 60, L"精确到时分秒", r.editHms, L"hms");
+        const float share = inner - 2 * gap, w = share / 3;
+        const int values[3] = {r.editHour, r.editMin, r.editSec};
+        const wchar_t* const units[3] = {L"时", L"分", L"秒"};
+        const wchar_t* const keys[3] = {L"h", L"n", L"s"};
+        float x = kPad;
+        for (int i = 0; i < 3; ++i) {
+            picker(x, x + w, two(values[i]), units[i], keys[i], r.editHms);
+            x += w + gap;
+        }
+    } else if (page == 3) {
+        toggleRow(top + 34, top + 60, L"农历日期（每年）", r.editLunar, L"lunar");
+        toggleRow(top + 64, top + 90, L"到期提醒", r.editRemind, L"remind");
+        toggleRow(top + 94, top + 120, L"置顶", r.editPinned, L"pin");
+    } else {
+        textField(r.editNote, L"寄语（20字以内）", L"note", true);
+        // Seven swatches: none (the card's own colours) and six accents; below them a strip of hues.
+        const float pitch = inner / 7, radius = std::min(9.f, pitch / 2 - 3), cy = top + 78;
+        for (int i = 0; i < 7; ++i) {
+            const float cx = kPad + pitch * (float(i) + 0.5f);
+            const bool picked = i == 0 ? !r.editHasColor : r.editHasColor && r.editColor == kCountdownColors[i - 1];
+            if (i == 0) {
+                c.Circle(cx, cy, radius, p.face);
+                c.Line(cx - radius * 0.6f, cy + radius * 0.6f, cx + radius * 0.6f, cy - radius * 0.6f, p.sub, 1.5f);
+            } else {
+                c.Circle(cx, cy, radius, Rgba(kCountdownColors[i - 1], 1.f));
+            }
+            if (picked)
+                c.Arc(cx, cy, radius + 3.5f, -90, 269.9f, p.text, 1.5f);
+            hits.push_back({D2D1::RectF(kPad + pitch * float(i), top + 64, kPad + pitch * float(i + 1), top + 92), L"c:" + std::to_wstring(i)});
+        }
+        const float seg = inner / float(kCountdownHues), sy0 = top + 98, sy1 = top + 114;
+        for (int i = 0; i < kCountdownHues; ++i) {
+            const float x0 = kPad + seg * float(i), x1 = x0 + seg + 0.5f;
+            c.Fill(D2D1::RectF(x0, sy0, x1, sy1), 0, Rgba(CountdownHue(i), 1.f));
+            hits.push_back({D2D1::RectF(x0, sy0 - 4, x0 + seg, sy1 + 4), L"hue:" + std::to_wstring(i)});
+        }
+        for (int i = 0; i < kCountdownHues; ++i)
+            if (r.editHasColor && r.editColor == CountdownHue(i)) {
+                const float x = kPad + seg * (float(i) + 0.5f);
+                c.Capsule(x, sy0 - 3, x, sy1 + 3, p.text, 3);
+            }
+    }
+
+    // Delete (an entry that already exists), cancel, save.
+    struct Button {
+        const wchar_t* label;
+        const wchar_t* id;
+        D2D1_COLOR_F ink;
+        bool primary;
+    };
+    std::vector<Button> buttons;
+    if (!r.editNew)
+        buttons.push_back({L"删除", L"del", p.red, false});
+    buttons.push_back({L"取消", L"cancel", p.text, false});
+    buttons.push_back({L"保存", L"ok", p.onAccent, true});
+    const float bw = (inner - 8 * float(buttons.size() - 1)) / float(buttons.size()), by = top + 126;
+    for (size_t i = 0; i < buttons.size(); ++i) {
+        const D2D1_RECT_F b = D2D1::RectF(kPad + (bw + 8) * float(i), by, kPad + (bw + 8) * float(i) + bw, by + 26);
+        c.Fill(b, 13, buttons[i].primary ? p.orange : p.face);
+        c.Text(buttons[i].label, b, 13, buttons[i].ink, DWRITE_FONT_WEIGHT_SEMI_BOLD, 1);
+        hits.push_back({b, buttons[i].id});
+    }
+}
+
+// Countdown: each entry is "名称 2027-02-06" (countdown.h) with, besides, an optional time of day (counted
+// to the second), a message and a colour. Nothing on the card answers a click except the "+" at its top
+// right, which opens the manage mode: every row then opens its editor and a last row adds one ("完成"
+// leaves it). Small shows the nearest day, large. Medium and large show either the entries as a list, in the
+// order they were added (cdStyle 0), or the nearest one large with the message beside it and the next
+// ones under it (cdStyle 1, chosen in the right-click menu).
+void PaintCountdown(Canvas& c, WidgetSize size, const WidgetContent& r, const WidgetWorld& world, const Pal& p, float W, float H,
+                    std::vector<WidgetHit>& hits)
+{
+    const SYSTEMTIME& now = world.now;
+    // What one entry shows now.
+    struct View {
+        CountdownEntry e;
+        bool hms = false, past = false;
+        int64_t secs = 0;                // until it: negative once it has passed
+        std::wstring num, unit, clock;   // "88" "天"; "今天"; "3" "天前"; "已到"; clock: "05:03:09"
+        std::wstring date;               // "2027-02-06", or "农历八月十五"
+        D2D1_COLOR_F col{};
+    };
+    std::vector<View> views;
+    views.reserve(r.items.size());
+    for (const Reminder& it : r.items) {
+        View v;
+        v.e = ParseCountdown(it.text, now.wYear, now.wMonth, now.wDay);
+        ResolveLunar(v.e, it, world.lunar, now, true);
+        v.hms = it.hms && v.e.hasDate;
+        D2D1_COLOR_F autoCol = p.faint; // past days are quiet; the coming week is red
+        if (v.hms) {
+            const CountdownClock k = CountdownRemaining(v.e, it.tod, now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond);
+            v.e.year = k.year;
+            v.e.day = std::min(v.e.day, CountdownDaysInMonth(k.year, v.e.month));
+            v.past = k.past;
+            v.secs = k.total;
+            if (k.past) {
+                v.num = L"已到";
+            } else {
+                if (k.days > 0)
+                    v.num = std::to_wstring(k.days), v.unit = L"天";
+                v.clock = CountdownClockText(k.h, k.m, k.s);
+            }
+            autoCol = k.past ? p.faint : k.total <= 7 * 86400 ? p.red : p.blue;
+        } else if (v.e.hasDate) {
+            v.past = v.e.days < 0;
+            v.secs = int64_t(v.e.days) * 86400;
+            if (v.e.days == 0)
+                v.num = L"今天";
+            else
+                v.num = std::to_wstring(std::abs(v.e.days)), v.unit = v.e.days > 0 ? L"天" : L"天前";
+            autoCol = v.past ? p.faint : v.e.days <= 7 ? p.red : p.blue;
+        }
+        v.col = it.hasColor ? Rgba(it.color, 1.f) : autoCol;
+        v.date = it.lunar ? LunarDateName(it.lunarMonth, it.lunarDay) : CountdownDate(v.e);
+        views.push_back(std::move(v));
+    }
+
+    c.Text(L"倒数日", D2D1::RectF(kPad + 2, kPad - 2, W - kPad - 70, kPad + 18), 13.5f, p.orange, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    if (r.editing && r.item >= 0 && r.item < int(r.items.size())) {
+        PaintCountdownEditor(c, r, p, W, H, hits);
+        return;
+    }
+    if (r.manage) {
+        c.Text(L"完成", D2D1::RectF(W - kPad - 60, kPad - 4, W - kPad, kPad + 20), 13.5f, p.orange, DWRITE_FONT_WEIGHT_SEMI_BOLD, 2);
+        hits.push_back({D2D1::RectF(W - kPad - 70, 0, W, kPad + 30), L"done"});
+    } else {
+        c.Text(L"+", D2D1::RectF(W - kPad - 26, kPad - 6, W - kPad + 2, kPad + 22), 19, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 1);
+        hits.push_back({D2D1::RectF(W - kPad - 36, 0, W, kPad + 30), L"manage"});
+    }
+
+    // The first pinned entry; else the nearest day still to come; when every one has passed, the latest.
+    int nearest = -1;
+    for (int i = 0; i < int(views.size()) && nearest < 0; ++i)
+        if (r.items[size_t(i)].pinned && views[size_t(i)].e.hasDate)
+            nearest = i;
+    for (int i = 0; i < int(views.size()) && !(nearest >= 0 && r.items[size_t(nearest)].pinned); ++i) {
+        if (!views[size_t(i)].e.hasDate)
+            continue;
+        if (nearest < 0) {
+            nearest = i;
+            continue;
+        }
+        const View& a = views[size_t(nearest)];
+        const View& b = views[size_t(i)];
+        if ((!b.past && (a.past || b.secs < a.secs)) || (b.past && a.past && b.secs > a.secs))
+            nearest = i;
+    }
+
+    // One entry's row: a dot, the name, its date, the days left (or the clock).
+    auto drawRow = [&](const Reminder& it, const View& v, float y, float rowH, float x0, float right, bool showDate) {
+        const float cy = y + rowH / 2, left = x0 + 26;
+        if (it.pinned) // a pin instead of the dot
+            c.Glyph(L"\uE718", D2D1::RectF(x0, cy - 8, x0 + 18, cy + 8), 11, v.e.hasDate ? v.col : p.faint);
+        else
+            c.Circle(x0 + 9, cy, 3.6f, v.e.hasDate ? v.col : p.faint);
+        if (v.e.hasDate) {
+            float nameRight;
+            if (v.hms) {
+                const std::wstring s = v.clock.empty() ? v.num : v.unit.empty() ? v.clock : v.num + v.unit + L" " + v.clock;
+                const float w = c.TextWidth(s, 13.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+                c.Text(s, D2D1::RectF(left, y, right, y + rowH), 13.5f, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD, 2);
+                nameRight = right - w - 12;
+            } else {
+                const float unitW = v.unit.empty() ? 0 : c.TextWidth(v.unit, 11.5f);
+                const float numSize = v.unit.empty() ? 14.f : 15.f;
+                const float numW = c.TextWidth(v.num, numSize, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+                const float unitSpace = unitW > 0 ? unitW + 4 : 0;
+                if (unitW > 0)
+                    c.Text(v.unit, D2D1::RectF(right - unitW - 8, y, right, y + rowH), 11.5f, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 2);
+                c.Text(v.num, D2D1::RectF(left, y, right - unitSpace, y + rowH), numSize, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD, 2);
+                nameRight = right - unitSpace - numW - 12;
+            }
+            if (showDate) {
+                const std::wstring& date = v.date;
+                const float dateW = c.TextWidth(date, 11.5f);
+                c.Text(date, D2D1::RectF(left, y, nameRight, y + rowH), 11.5f, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 2);
+                nameRight -= dateW + 10;
+            }
+            c.Text(v.e.name.empty() ? L"倒数日" : v.e.name, D2D1::RectF(left, y, std::max(left + 24, nameRight), y + rowH), 13.5f,
+                   v.e.name.empty() || v.past ? p.sub : p.text);
+        } else {
+            c.Text(L"日期无效", D2D1::RectF(left, y, right, y + rowH), 11.5f, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 2);
+            c.Text(it.text, D2D1::RectF(left, y, right - 60, y + rowH), 13.5f, p.text);
+        }
+    };
+
+    // The nearest entry large, in a card-high frame (164) that starts at `left`: the name, the days (or
+    // the days and then the clock), and under them the date, or the message when `noteBelow`.
+    auto hero = [&](float left, float right, const View& v, const Reminder& it, bool noteBelow) {
+        constexpr float F = 164;
+        const float x = left + kPad + 2, xr = right - kPad;
+        c.Text(v.e.name.empty() ? L"倒数日" : v.e.name, D2D1::RectF(x, kPad + 22, xr, kPad + 42), 13.5f, v.e.name.empty() ? p.sub : p.text);
+        if (v.clock.empty()) {
+            if (v.unit.empty()) {
+                c.Text(v.num, D2D1::RectF(x, F - 96, xr, F - 38), 40, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+            } else {
+                c.Text(v.num, D2D1::RectF(x, F - 100, xr, F - 36), 52, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+                const float ux = x + c.TextWidth(v.num, 52, DWRITE_FONT_WEIGHT_SEMI_BOLD) + 4;
+                c.Text(v.unit, D2D1::RectF(ux, F - 66, xr + 4, F - 40), 15, p.sub);
+            }
+        } else if (v.unit.empty()) { // less than a day left: the clock is the number
+            c.Text(v.clock, D2D1::RectF(x, 60, xr + 6, 108), 30, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        } else {
+            c.Text(v.num, D2D1::RectF(x, 50, xr, 92), 38, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+            const float ux = x + c.TextWidth(v.num, 38, DWRITE_FONT_WEIGHT_SEMI_BOLD) + 4;
+            c.Text(v.unit, D2D1::RectF(ux, 66, xr + 4, 90), 14, p.sub);
+            c.Text(v.clock, D2D1::RectF(x, 92, xr + 6, 116), 20, v.col, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        }
+        if (noteBelow && !it.note.empty())
+            c.Text(it.note, D2D1::RectF(x, F - kPad - 30, xr, F - kPad), 11.5f, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 0, true);
+        else
+            c.Text(v.date, D2D1::RectF(x, F - kPad - 18, xr, F - kPad), 11.5f, p.sub);
+    };
+
+    if (!r.manage && size == WidgetSize::Small) {
+        if (views.empty()) {
+            c.Text(L"点右上角的“+”", D2D1::RectF(kPad, H / 2 - 22, W - kPad, H / 2), 14, p.text, DWRITE_FONT_WEIGHT_SEMI_BOLD, 1);
+            c.Text(L"添加倒数日", D2D1::RectF(kPad, H / 2 + 2, W - kPad, H / 2 + 20), 11.5f, p.sub, DWRITE_FONT_WEIGHT_NORMAL, 1);
+            return;
+        }
+        if (nearest < 0) { // none has a valid date
+            c.Text(r.items[0].text, D2D1::RectF(kPad + 2, kPad + 22, W - kPad - 2, kPad + 60), 13.5f, p.text, DWRITE_FONT_WEIGHT_NORMAL, 0, true);
+            c.Text(L"日期无效，点“+”修改", D2D1::RectF(kPad + 2, H - kPad - 36, W - kPad - 2, H - kPad), 11.5f, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 0, true);
+            return;
+        }
+        hero(0, W, views[size_t(nearest)], r.items[size_t(nearest)], true);
+        return;
+    }
+
+    if (!r.manage && size != WidgetSize::Small && r.cdStyle == 1 && nearest >= 0) {
+        // The large style: the nearest entry on the left (the card's first 164 DIP), the message beside it.
+        const float split = 180, right = W - kPad;
+        hero(0, split, views[size_t(nearest)], r.items[size_t(nearest)], false);
+        const std::wstring& note = r.items[size_t(nearest)].note;
+        if (!note.empty())
+            c.Text(note, D2D1::RectF(split + 8, 38, right, 92), 15, p.text, DWRITE_FONT_WEIGHT_NORMAL, 0, true);
+        // The others, the next to come first.
+        std::vector<int> rest;
+        for (int i = 0; i < int(views.size()); ++i)
+            if (i != nearest)
+                rest.push_back(i);
+        std::stable_sort(rest.begin(), rest.end(), [&](int a, int b) {
+            const View &va = views[size_t(a)], &vb = views[size_t(b)];
+            if (va.e.hasDate != vb.e.hasDate)
+                return va.e.hasDate;
+            if (va.past != vb.past)
+                return !va.past;
+            return va.past ? va.secs > vb.secs : va.secs < vb.secs;
+        });
+        if (size == WidgetSize::Medium) {
+            c.Line(split + 8, 100, right, 100, p.faint);
+            float y = 102;
+            for (size_t k = 0; k < rest.size() && k < 2; ++k, y += 24)
+                drawRow(r.items[size_t(rest[k])], views[size_t(rest[k])], y, 24, split + 8, right, false);
+        } else {
+            constexpr float F = 164;
+            c.Line(kPad, F, W - kPad, F, p.faint);
+            float y = F + 8;
+            for (size_t k = 0; k < rest.size() && y + kReminderRow <= H - kReminderBottom + 4; ++k, y += kReminderRow)
+                drawRow(r.items[size_t(rest[k])], views[size_t(rest[k])], y, kReminderRow, kPad, right, true);
+        }
+        return;
+    }
+
+    // The list: medium and large, or any size in the manage mode (small leaves the date out).
+    const bool compact = size == WidgetSize::Small;
+    const float bottom = H - kReminderBottom, view = bottom - kReminderTop;
+    const float limit = std::max(0.f, float(r.items.size() + 1) * kReminderRow - view);
+    const float scroll = std::clamp(r.scroll, 0.f, limit);
+    auto hit = [&](D2D1_RECT_F rect, std::wstring id) {
+        rect.top = std::max(rect.top, kReminderTop);
+        rect.bottom = std::min(rect.bottom, bottom);
+        if (rect.bottom > rect.top)
+            hits.push_back({rect, std::move(id)});
+    };
+    c.Clip(D2D1::RectF(kPad - 4, kReminderTop, W - kPad, bottom));
+    int first = int(scroll / kReminderRow);
+    int last = std::min(int(r.items.size()), int(std::ceil((scroll + view) / kReminderRow)));
+    const float right = W - kPad;
+    for (int idx = first; idx < last; ++idx) {
+        const float y = kReminderTop + kReminderRow * float(idx) - scroll;
+        if (r.manage) {
+            // Up and down arrows at the row's end move it in the list (they answer before the row does).
+            const float ax = right - 40, cy = y + kReminderRow / 2;
+            const bool canUp = idx > 0, canDown = idx + 1 < int(r.items.size());
+            c.Glyph(L"\uE70E", D2D1::RectF(ax, cy - 8, ax + 18, cy + 8), 10, canUp ? p.sub : p.faint);
+            c.Glyph(L"\uE70D", D2D1::RectF(ax + 20, cy - 8, ax + 38, cy + 8), 10, canDown ? p.sub : p.faint);
+            if (canUp)
+                hit(D2D1::RectF(ax - 2, y, ax + 19, y + kReminderRow), L"up:" + std::to_wstring(idx));
+            if (canDown)
+                hit(D2D1::RectF(ax + 19, y, W - kPad, y + kReminderRow), L"down:" + std::to_wstring(idx));
+            drawRow(r.items[size_t(idx)], views[size_t(idx)], y, kReminderRow, kPad, ax - 6, !compact);
+            hit(D2D1::RectF(kPad - 4, y, W - kPad, y + kReminderRow), L"item:" + std::to_wstring(idx));
+        } else {
+            drawRow(r.items[size_t(idx)], views[size_t(idx)], y, kReminderRow, kPad, right, !compact);
+        }
+    }
+    const float y = kReminderTop + kReminderRow * float(r.items.size()) - scroll;
+    if (r.manage && y < bottom) {
+        c.Text(L"+", D2D1::RectF(kPad - 1, y, kPad + 19, y + kReminderRow), 17, p.faint, DWRITE_FONT_WEIGHT_NORMAL, 1);
+        c.Text(L"新倒数日", D2D1::RectF(kPad + 26, y, W - kPad, y + kReminderRow), 13.5f, p.faint);
+        hit(D2D1::RectF(kPad - 4, y, W - kPad, y + kReminderRow), L"new");
+    } else if (!r.manage && r.items.empty()) {
+        c.Text(L"点右上角的“+”添加倒数日", D2D1::RectF(kPad - 1, kReminderTop, W - kPad, kReminderTop + kReminderRow), 13.5f, p.faint);
+    }
+    c.Unclip();
+    if (limit > 0) {
+        float thumb = std::max(18.f, view * view / (view + limit));
+        float ty = kReminderTop + (view - thumb) * scroll / limit;
+        c.Fill(D2D1::RectF(W - 7, ty, W - 5, ty + thumb), 1, p.faint);
+    }
+}
+
 // A photo filling the card; without one, how to choose a folder.
 void PaintPhotos(Canvas& c, const WidgetContent& ph, const Pal& p, float W, float H)
 {
@@ -867,6 +1274,9 @@ void PaintWidget(Canvas& c, WidgetKind kind, WidgetSize size, WidgetMaterial mat
         break;
     case WidgetKind::Bluetooth:
         PaintBluetooth(c, size, world, p, W, H);
+        break;
+    case WidgetKind::Countdown:
+        PaintCountdown(c, size, content, world, p, W, H, hits);
         break;
     }
 }

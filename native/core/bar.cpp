@@ -40,6 +40,7 @@ constexpr wchar_t kClockKey[] = L"#clock";
 constexpr wchar_t kStartKey[] = L"#start";
 constexpr wchar_t kNotifyKey[] = L"#notify";
 constexpr wchar_t kTrayKey[] = L"#tray";
+constexpr wchar_t kVoiceKey[] = L"#voice";
 constexpr wchar_t kStatusKey[] = L"#status";
 constexpr wchar_t kMoreKey[] = L"#more";
 // Bar entries and the clock start with '#'; app keys are AUMIDs or paths.
@@ -606,6 +607,8 @@ LRESULT Bar::OnInput(HWND h, UINT m, WPARAM w, LPARAM l)
                 onNotifyClick(anchor);
             else if (key == kTrayKey && onTrayClick)
                 onTrayClick(anchor);
+            else if (key == kVoiceKey && onVoiceClick)
+                onVoiceClick();
             else if (key == kStatusKey && onStatusClick)
                 onStatusClick(anchor);
             else if (key == kMoreKey && onOverflow)
@@ -876,6 +879,7 @@ void Bar::Relayout()
     const bool showRight = !st.taskbarRightPrimaryOnly || primary;
     const bool showClock = showRight && st.showClock;
     const bool showTray = showRight && st.showTray;
+    const bool showVoice = showRight && st.showVoice; // the microphone entry (voice input)
     const bool showStatus = showRight && st.showStatus;
     const bool showNotifications = showRight && st.showNotifications;
 
@@ -902,12 +906,12 @@ void Bar::Relayout()
         clockW = int(std::ceil(w)) + Px(22, s);
     }
 
-    // Left to right: [logo] [apps ... (overflow)] | [tray] [status] [clock] [bell].
+    // Left to right: [logo] [apps ... (overflow)] | [mic] [tray] [status] [clock] [bell].
     // The logo, the overflow entry, the tray and the bell use the same plates
     // as the apps; so does the status ring (battery or volume, Wi-Fi).
     // The status entry as three icons (statusStyle) is wider than a plate by about an icon.
     const int statusExtra = st.statusStyle == L"icons" ? int(std::lround(icon * 1.3f)) : 0;
-    const int rightCount = int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0);
+    const int rightCount = int(showVoice) + int(showTray) + int(showStatus) + int(showNotifications) + int(clockW != 0);
     const int groupGap = rightCount ? sepGap : 0;
     const int total = int(items_.size());
     int n = total;
@@ -918,7 +922,7 @@ void Bar::Relayout()
         int w = 2 * padFor(p) + p + 2 * g;               // logo and the air after it
         w += slots ? slots * p + (slots - 1) * g : 0;    // apps
         if (rightCount)
-            w += 2 * sepGap + p * (int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
+            w += 2 * sepGap + p * (int(showVoice) + int(showTray) + int(showStatus) + int(showNotifications)) + (showStatus ? statusExtra : 0) + clockW +
                  (rightCount - 1) * g;
         return std::max(w, barH * 2);
     };
@@ -1045,6 +1049,7 @@ void Bar::Relayout()
     const int clockLeft = rightSlot(clockW, clockW != 0), clockRight = clockLeft + clockW;
     const int statusLeft = rightSlot(statusW, showStatus), statusRight = statusLeft + statusW;
     const int trayLeft = rightSlot(plate, showTray);
+    const int voiceLeft = rightSlot(plate, showVoice);
     const int rightLeft = rightCount ? cursor + gap : insetX + barW - pad;
     const int appsMin = startLeft + plate + 2 * gap;
     const int slots = n + (more ? 1 : 0);
@@ -1105,6 +1110,12 @@ void Bar::Relayout()
     gap_ = gap;
     shown_ = n;
     scene.separatorX = rightCount ? float(rightLeft - sepGap) : -1;
+    if (showVoice) {
+        SceneItem voice = entry(kVoiceKey, voiceLeft, L"\uE720"); // Segoe Fluent Icons: microphone
+        voice.running = voice.active = voiceActive_;           // recording: the running dot under it
+        scene.extras.push_back(std::move(voice));
+        hits_.push_back({kVoiceKey, RECT{voiceLeft - gap / 2, hitTop, voiceLeft + plate + gap / 2, hitBottom}});
+    }
     if (showTray) {
         scene.extras.push_back(entry(kTrayKey, trayLeft, L"\uE70E"));
         hits_.push_back({kTrayKey, RECT{trayLeft - gap / 2, hitTop, trayLeft + plate + gap / 2, hitBottom}});
@@ -1503,6 +1514,14 @@ void Bar::SetStatus(const SystemStatus& status)
     UpdateTooltips();
 }
 
+void Bar::SetVoiceActive(bool on)
+{
+    if (on == voiceActive_)
+        return;
+    voiceActive_ = on;
+    Relayout();
+}
+
 void Bar::SetUnread(int count)
 {
     if (count == unread_)
@@ -1545,6 +1564,8 @@ std::wstring Bar::TooltipText(const std::wstring& key) const
         return unread_ ? std::to_wstring(unread_) + L" \u6761\u672A\u8BFB\u901A\u77E5" : L"\u901A\u77E5"; // N 条未读通知 / 通知
     if (key == kTrayKey)
         return L"\u6258\u76D8"; // 托盘
+    if (key == kVoiceKey)
+        return L"\u8BED\u97F3\u8F93\u5165"; // 语音输入
     if (key == kStatusKey) {
         const SystemStatus& st = status_;
         std::wstring net = !st.connected ? L"\u672A\u8FDE\u63A5\u7F51\u7EDC" // 未连接网络

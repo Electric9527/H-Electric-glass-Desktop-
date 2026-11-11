@@ -35,6 +35,8 @@ add_executable(atrium_core WIN32
     shell/app_catalog.cpp
     shell/start_layout.cpp
     shell/win_key.cpp
+    shell/voice_input.cpp
+    shell/drop_update.cpp
     shell/app_registration.cpp
     shell/update_checker.cpp
     shell/system_chrome.cpp
@@ -50,6 +52,7 @@ add_executable(atrium_core WIN32
     shell/jump_list.cpp
     shell/wechat_source.cpp
     shell/feishu_source.cpp
+    shell/app_message_source.cpp
     ui/surface.cpp
     ui/start_menu.cpp
     ui/notifications.cpp

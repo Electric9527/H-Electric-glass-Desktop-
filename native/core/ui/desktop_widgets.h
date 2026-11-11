@@ -40,6 +40,8 @@ public:
 
     std::function<void()> onCalendar;    // a calendar widget was clicked
     std::function<void()> onAddWidgets;  // "添加小组件…": the settings app's widget gallery
+    // A countdown entry's day (or moment) came: its name and "就是今天" / "时间到了" (with its message).
+    std::function<void(const std::wstring& title, const std::wstring& body)> onCountdownDue;
     std::function<void()> onStatusRequest;
     GlassMenu* menu = nullptr;           // a widget's menu (main's)
 
@@ -82,6 +84,11 @@ private:
     static void PaintShadow(Canvas& c, D2D1_RECT_F face);
     // Notes and reminders: a click starts typing, keys edit, losing the focus ends it.
     void Click(Widget& w, POINT content);
+    // Countdown: only its "+" answers a click, and opens the manage mode; a row or the new-entry row
+    // opens the editor, where the name is typed and the date is chosen by year, month and day.
+    void ClickCountdown(Widget& w, POINT content);
+    void OpenCountdownEditor(Widget& w, int index); // -1: a new entry
+    void FinishCountdown(Widget& w, bool save, bool remove);
     void StartEdit(Widget& w, int item);
     void EndEdit(Widget& w);
     bool Key(Widget& w, UINT m, WPARAM wp);
@@ -92,6 +99,7 @@ private:
     void PickCity(Widget& w, POINT at);
     void LoadPhoto(Widget& w, bool another);
     void SampleSystem();
+    void RemindCountdowns(const SYSTEMTIME& now);
 
     HINSTANCE instance_;
     HWND host_ = nullptr; // timers, the menu's owner

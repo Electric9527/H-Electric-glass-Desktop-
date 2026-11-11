@@ -29,6 +29,28 @@ std::wstring LogPath()
     return dir + L"\\core.log";
 }
 
+// The copy beside the program: <program folder>\logs\core.log.
+std::wstring MirrorPath()
+{
+    wchar_t exe[MAX_PATH * 2]{};
+    if (!GetModuleFileNameW(nullptr, exe, DWORD(MAX_PATH * 2)))
+        return {};
+    std::wstring dir(exe);
+    dir = dir.substr(0, dir.find_last_of(L'\\')) + L"\\logs";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\core.log";
+}
+
+FILE* OpenLog(const std::wstring& path)
+{
+    if (path.empty())
+        return nullptr;
+    WIN32_FILE_ATTRIBUTE_DATA a{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &a) && (a.nFileSizeHigh || a.nFileSizeLow > 8u << 20))
+        MoveFileExW(path.c_str(), (path.substr(0, path.size() - 4) + L".1.log").c_str(), MOVEFILE_REPLACE_EXISTING);
+    return _wfsopen(path.c_str(), L"a, ccs=UTF-8", _SH_DENYNO); // others may read it meanwhile
+}
+
 // Lines are written by a thread of their own into a file kept open: opening
 // and closing it for every line (a virus scan each time) took milliseconds,
 // under a lock every thread shared - animations stalled on their own log
@@ -64,11 +86,8 @@ private:
     void Run()
     {
         SetThreadDescription(GetCurrentThread(), L"Atrium log");
-        const std::wstring path = LogPath();
-        WIN32_FILE_ATTRIBUTE_DATA a{};
-        if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &a) && (a.nFileSizeHigh || a.nFileSizeLow > 8u << 20))
-            MoveFileExW(path.c_str(), (path.substr(0, path.size() - 4) + L".1.log").c_str(), MOVEFILE_REPLACE_EXISTING);
-        FILE* f = _wfsopen(path.c_str(), L"a, ccs=UTF-8", _SH_DENYNO); // others may read it meanwhile
+        FILE* f = OpenLog(LogPath());
+        FILE* mirror = OpenLog(MirrorPath());
         std::vector<std::wstring> lines;
         for (;;) {
             {
@@ -78,15 +97,19 @@ private:
                 if (lines.empty() && stop_)
                     break;
             }
-            if (f) {
+            for (FILE* out : {f, mirror}) {
+                if (!out)
+                    continue;
                 for (const std::wstring& l : lines)
-                    fputws(l.c_str(), f);
-                fflush(f);
+                    fputws(l.c_str(), out);
+                fflush(out);
             }
             lines.clear();
         }
         if (f)
             fclose(f);
+        if (mirror)
+            fclose(mirror);
     }
 
     std::mutex mutex_;

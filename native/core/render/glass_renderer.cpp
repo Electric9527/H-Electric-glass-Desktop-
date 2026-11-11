@@ -53,12 +53,15 @@ void PopVisual(IDCompositionDevice* device, IDCompositionVisual* visual, bool op
         FAILED(device->CreateAnimation(o.put())) || FAILED(device->CreateEffectGroup(fx.put())))
         return;
     if (open) {
-        SpringTo(s.get(), motion::kPop, 0.92f, 1.0f, 0.6, 12); // a hint past full size, then rest
+        if (motion::reduced)
+            EaseOut(s.get(), 0, 0.01, 1.0f, 1.0f), s->End(0.01, 1.0f); // reduced motion: the fade only
+        else
+            SpringTo(s.get(), motion::kPop, 0.92f, 1.0f, 0.6, 12); // a hint past full size, then rest
         EaseOut(o.get(), 0, 0.16, 0.0f, 1.0f);
         o->End(0.16, 1.0f);
     } else {
-        EaseOut(s.get(), 0, 0.13, 1.0f, 0.95f);
-        s->End(0.13, 0.95f);
+        EaseOut(s.get(), 0, 0.13, 1.0f, motion::reduced ? 1.0f : 0.95f);
+        s->End(0.13, motion::reduced ? 1.0f : 0.95f);
         EaseOut(o.get(), 0, 0.12, 1.0f, 0.0f);
         o->End(0.12, 0.0f);
     }

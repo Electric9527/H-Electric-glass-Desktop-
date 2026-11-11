@@ -652,7 +652,7 @@ void StartMenu::Paint(Canvas& c)
     const Theme& t = c.theme;
     const double now = c.now;
     hits_.clear();
-    dt_ = lastPaint_ > 0 ? float(std::clamp(now - lastPaint_, 0.0, 100.0)) : 16.f;
+    dt_ = float(motion::FrameDt(now, lastPaint_, 16)); // from rest: one frame, not the idle time
     lastPaint_ = now;
     auto glide = [&](float& v, float target, float rate, float eps) {
         v = motion::Approach(v, target, dt_, rate);

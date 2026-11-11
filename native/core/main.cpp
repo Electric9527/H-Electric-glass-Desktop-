@@ -11,6 +11,10 @@
 #include "shell/app_catalog.h"
 #include "shell/app_registration.h"
 #include "shell/update_checker.h"
+#include "motion.h"
+#include "shell/voice_input.h"
+#include "shell/drop_update.h"
+#include "shell/app_message_source.h"
 #include "shell/task_model.h"
 #include "shell/notification_listener.h"
 #include "shell/system_chrome.h"
@@ -40,8 +44,11 @@
 #include <winrt/Windows.Foundation.h>
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <optional>
+#include <map>
+#include <set>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -65,13 +72,15 @@ constexpr UINT WM_WIN_KEY = WM_APP + 12;      // the Windows key alone (wParam 0
 constexpr UINT_PTR kTrayTimer = 0x51;
 constexpr UINT_PTR kStatusTimer = 0x52;       // the bar's status icon
 constexpr UINT_PTR kTrayFocusTimer = 0x53;    // after a forwarded tray click
-constexpr UINT_PTR kReadyTimer = 0x54;       // only during an update startup handshake
+constexpr UINT_PTR kReadyTimer = 0x54;
+constexpr UINT_PTR kVoiceTimer = 0x55;       // the microphone entry follows the voice session
+constexpr UINT_PTR kDropTimer = 0x56;        // a package zip dropped in <program folder>\update is installed       // only during an update startup handshake
 constexpr UINT kStatusMs = 3000;
 constexpr UINT kTrayId = 1;
 
 enum Command : UINT {
     kCmdSettings = 100, kCmdToggle, kCmdExit, kCmdNewWindow, kCmdPin, kCmdUnpin, kCmdClose, kCmdOpenLocation, kCmdDesktop, kCmdTaskManager, kCmdTerminate, kCmdTerminateConfirm,
-    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdRunAs, kCmdProperties,
+    kCmdWidgets, kCmdStage, kCmdWidgetsModule, kCmdRunAs, kCmdProperties, kCmdTestNotice,
     kCmdRecent = 2000 // + index into the recent list (its length is bounded)
 };
 
@@ -97,6 +106,8 @@ struct App {
     std::unique_ptr<UpdateChecker> updates;
     std::unique_ptr<WeChatSource> wechat;
     std::unique_ptr<FeishuSource> feishu;
+    std::unique_ptr<AppMessageSource> qq, bilibili; // apps with their own message popups
+    std::map<std::wstring, ULONGLONG> lastNotice;   // app name -> GetTickCount64 of its last card (any source)
     std::unique_ptr<TrayModel> tray;
     std::unique_ptr<TrayPanel> trayPanel;
     std::unique_ptr<ControlCenter> control;
@@ -338,6 +349,87 @@ void ToggleCalendar()
     g_app.notes->PanelsChanged();
 }
 
+// Windows' "animation effects" setting, followed by Atrium's own motion (motion::reduced).
+void ReadReducedMotion()
+{
+    BOOL on = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &on, 0);
+    if (motion::reduced.exchange(!on) != !on)
+        Log(L"motion: Windows animation effects are %s", on ? L"on" : L"off: reduced motion");
+}
+
+// The setting "calmWindows": Windows' own minimise/maximise animation is switched off while it is on (the
+// user's per-account setting, as in "Performance Options"), and back on when the setting is turned off again.
+// Nothing is touched while the setting stays off.
+void ApplyCalmWindows(bool calm)
+{
+    static bool applied = false;
+    if (calm == applied)
+        return;
+    ANIMATIONINFO info{sizeof(info)};
+    info.iMinAnimate = calm ? 0 : 1;
+    SystemParametersInfoW(SPI_SETANIMATION, sizeof(info), &info, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
+    applied = calm;
+    Log(L"motion: Windows' minimise/maximise animation %s", calm ? L"off (calmWindows)" : L"back on");
+}
+
+// The microphone entry: the voice input of WeChat Input Method, the same session its floating bar's microphone
+// and its hotkey Ctrl+Win+Shift start and end (shell/voice_input.cpp: the floating bar's microphone when it can be
+// found, else the hotkey; the keyboard first goes back to the app the user was typing in).
+void PressVoiceHotkey()
+{
+    Log(L"voice: microphone clicked");
+    StartVoiceInput(nullptr);
+}
+
+// Apps that only flash their taskbar button for a new message (QQ, the bilibili client): a short card when one
+// starts flashing, unless its own popup was just read as a card (shell/app_message_source.h).
+void NoticeFlashingApps(const std::vector<TaskItem>& items)
+{
+    static std::set<std::wstring> flashing;
+    std::set<std::wstring> now;
+    for (const TaskItem& t : items) {
+        if (!t.attention || t.windows.empty())
+            continue;
+        now.insert(t.key);
+        if (flashing.count(t.key))
+            continue;
+        std::wstring exe;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(t.windows.front(), &pid);
+        if (HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+            wchar_t buf[MAX_PATH * 2];
+            DWORD len = DWORD(std::size(buf));
+            if (QueryFullProcessImageNameW(p, 0, buf, &len))
+                exe = buf;
+            CloseHandle(p);
+        }
+        const AppMessageSpec* spec = AppMessageSpecFor(exe.empty() ? t.key : exe);
+        if (!spec || !g_app.notes)
+            continue;
+        AppMessageSource* source = spec->source == L"qq" ? g_app.qq.get() : g_app.bilibili.get();
+        // Not when a card for it came a moment ago (its popup, or a Windows notification it sent).
+        const auto last = g_app.lastNotice.find(spec->app);
+        if (!source || GetTickCount64() - source->LastPosted() < 10000 ||
+            (last != g_app.lastNotice.end() && GetTickCount64() - last->second < 10000))
+            continue;
+        wchar_t title[128] = {};
+        InternalGetWindowText(t.windows.front(), title, 128); // sends no message: a hung app cannot stall the bar
+        Notice n;
+        n.source = spec->source;
+        n.app = spec->app;
+        n.appId = exe;
+        n.title = *title ? std::wstring(title) : spec->app;
+        n.body = L"有新消息";
+        if (!exe.empty())
+            n.action = L"app:" + exe;
+        g_app.lastNotice[n.app] = GetTickCount64();
+        g_app.notes->Post(n);
+        Log(L"%s: its window flashes: card posted", spec->source.c_str());
+    }
+    flashing = std::move(now);
+}
+
 void ToggleStart(RECT)
 {
     if (g_app.start->Visible()) {
@@ -385,6 +477,7 @@ void ShowMenu(POINT pt)
     entries.push_back({L"桌面小组件", kCmdWidgetsModule, g_app.widgetsOn});
     entries.push_back({L"台前调度", kCmdStage, g_app.stage->Enabled()});
     entries.push_back({});
+    entries.push_back({L"发送测试通知", kCmdTestNotice}); // shows where and how the cards pop up
     entries.push_back({L"退出 Atrium", kCmdExit});
     g_app.menu->Open(std::move(entries), pt, MenuPlace::Above, [](int cmd) {
         switch (cmd) {
@@ -412,6 +505,17 @@ void ShowMenu(POINT pt)
             break;
         case kCmdExit:
             DestroyWindow(g_app.host);
+            break;
+        case kCmdTestNotice:
+            if (g_app.notes) {
+                Notice n;
+                n.source = L"atrium";
+                n.app = L"Atrium";
+                n.title = L"测试通知";
+                n.body = L"新消息会在这里弹出";
+                g_app.notes->Post(n);
+                Log(L"notify: test card sent from the bar's menu");
+            }
             break;
         }
     });
@@ -527,6 +631,15 @@ void ApplySettings(const Settings& s)
         g_app.feishu = std::make_unique<FeishuSource>(g_app.host, WM_NOTICE);
     else if (!(s.bar && s.notifyFeishu) && g_app.feishu)
         g_app.feishu.reset();
+    ApplyCalmWindows(s.calmWindows);
+    if (s.bar && s.notifyQQ && !g_app.qq)
+        g_app.qq = std::make_unique<AppMessageSource>(g_app.host, WM_NOTICE, QQSpec());
+    else if (!(s.bar && s.notifyQQ) && g_app.qq)
+        g_app.qq.reset();
+    if (s.bar && s.notifyBilibili && !g_app.bilibili)
+        g_app.bilibili = std::make_unique<AppMessageSource>(g_app.host, WM_NOTICE, BilibiliSpec());
+    else if (!(s.bar && s.notifyBilibili) && g_app.bilibili)
+        g_app.bilibili.reset();
     g_app.tasks->SetPins(s.pins.value_or(std::vector<PinnedApp>{}));
     g_app.tasks->SetShowRunning(s.showRunning);
     SyncDisplayBars(s);
@@ -976,6 +1089,7 @@ void ConfigureBar(Bar& bar)
     bar.onStartClick = ToggleStart;
     bar.onNotifyClick = [](RECT) { g_app.notes->ToggleCenter(); };
     bar.onTrayClick = ToggleTray;
+    bar.onVoiceClick = PressVoiceHotkey;
     bar.onStatusClick = ToggleControl;
     bar.keepShown = [&bar] {
         return g_app.activeBar == &bar && (g_app.start->Visible() || g_app.trayPanel->Visible() || g_app.control->Visible() ||
@@ -1125,9 +1239,12 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
         if (auto* n = reinterpret_cast<Notice*>(l)) {
             // Only from sources still turned on (a notice may arrive just after).
             bool on = n->source == L"atrium" ? g_app.barOn.value_or(true) : n->source == L"wechat" ? bool(g_app.wechat)
-                       : n->source == L"feishu" ? bool(g_app.feishu) : bool(g_app.listener);
-            if (g_app.notes && on)
+                       : n->source == L"feishu" ? bool(g_app.feishu) : n->source == L"qq" ? bool(g_app.qq)
+                       : n->source == L"bilibili" ? bool(g_app.bilibili) : bool(g_app.listener);
+            if (g_app.notes && on) {
+                g_app.lastNotice[n->app] = GetTickCount64();
                 g_app.notes->Post(*n);
+            }
             delete n;
         }
         return 0;
@@ -1177,6 +1294,21 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         if (w == kTrayTimer) {
             OpenTrayStep2();
+            return 0;
+        }
+        if (w == kDropTimer) {
+            if (const std::wstring zip = PendingDropUpdate(ExeDir()); !zip.empty()) {
+                KillTimer(h, kDropTimer);
+                if (StartDropUpdate(ExeDir(), zip))
+                    DestroyWindow(g_app.host); // as "退出 Atrium": the script waits for this, installs and starts it again
+                else
+                    SetTimer(h, kDropTimer, 3000, nullptr);
+            }
+            return 0;
+        }
+        if (w == kVoiceTimer) {
+            const bool on = g_app.displaySettings.showVoice && VoiceSessionOpen();
+            ForBars([on](Bar& bar) { bar.SetVoiceActive(on); });
             return 0;
         }
         if (w == kStatusTimer) {
@@ -1232,7 +1364,7 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         break;
     case WM_ATRIUM_ADD_WIDGET:
-        return w <= WPARAM(WidgetKind::Bluetooth) && l >= 0 && l <= LPARAM(WidgetSize::Large) &&
+        return w <= WPARAM(WidgetKind::Countdown) && l >= 0 && l <= LPARAM(WidgetSize::Large) &&
                g_app.widgetsOn && g_app.widgets->Add(WidgetKind(w), WidgetSize(l)) ? 1 : 0;
     case WM_ATRIUM_SETTINGS:
         ApplySettings(g_app.server->Current());
@@ -1252,6 +1384,7 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         return 0;
     case WM_SETTINGCHANGE:
+        ReadReducedMotion();
         if (w == SPI_SETWORKAREA && g_app.displaysReady) {
             SyncDisplayBars(g_app.displaySettings, true);
             HMONITOR desktop = ResolveDisplay(ConnectedDisplays(), g_app.desktopDisplay);
@@ -1382,6 +1515,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
         settings.pins = TaskModel::ImportWindowsPins();
         Log(L"core: imported %zu Windows taskbar pins", settings.pins->size());
     }
+    // Once, for this build: notifications at the top centre of the screen (the owner's choice). A placement
+    // chosen later in Settings stands; the marker file says the move was made.
+    if (const std::wstring path = SettingsPath(), marker = path.substr(0, path.find_last_of(L'\\')) + L"\\mod-notify-top-centre";
+        GetFileAttributesW(marker.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        if (settings.notifyPlacement == L"dock") {
+            settings.notifyPlacement = L"topCenter";
+            SaveSettings(settings);
+            Log(L"core: notifications moved to the top centre of the screen (once)");
+        }
+        if (HANDLE f = CreateFileW(marker.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr); f != INVALID_HANDLE_VALUE)
+            CloseHandle(f);
+    }
     const bool capturable = wcsstr(cmdLine, L"--debug-capturable") != nullptr;
     g_app.capturable = capturable;
     g_app.bar = std::make_unique<Bar>(instance, capturable);
@@ -1399,6 +1544,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
             g_app.stage->Update(g_app.tasks->Snapshot(true));
         const double t1 = ClockMs();
         auto items = g_app.tasks->Snapshot();
+        NoticeFlashingApps(items);
         const double t2 = ClockMs();
         ForBars([&](Bar& bar) { bar.SetItems(items); });
         if (g_app.preview)
@@ -1440,6 +1586,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     g_app.status = std::make_unique<SystemStatusReader>(g_app.host, WM_STATUS, WM_VOLUME);
     g_app.widgets->menu = g_app.menu.get();
     g_app.widgets->onAddWidgets = [] { OpenSettings(L"widgets"); };
+    g_app.widgets->onCountdownDue = [](const std::wstring& title, const std::wstring& body) {
+        if (!g_app.notes)
+            return;
+        Notice n;
+        n.source = L"atrium";
+        n.app = L"倒数日";
+        n.title = title;
+        n.body = body;
+        g_app.notes->Post(n);
+        Log(L"countdown: a day came: card posted");
+    };
     g_app.widgets->onCalendar = [] {
         if (!g_app.calendar->Visible())
             ToggleCalendar();
@@ -1478,8 +1635,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     UpdateStatus();
     g_app.brightnessNotify = RegisterPowerSettingNotification(g_app.host, &kBrightnessSetting, DEVICE_NOTIFY_WINDOW_HANDLE);
     SetTimer(g_app.host, kStatusTimer, kStatusMs, nullptr);
+    SetTimer(g_app.host, kVoiceTimer, 400, nullptr);
+    ReadReducedMotion();
+    SetTimer(g_app.host, kDropTimer, 3000, nullptr);
     g_app.tray->Refresh(); // the panel opens with the icons already read
-    g_app.updates = std::make_unique<UpdateChecker>(g_app.host);
+    // No updates from the upstream project: its package would replace this build (upstream + our changes, built by the
+    // private repository Electric9527/Liquid-Glass-desktop), and that repository's Releases carry the next one.
+    // g_app.updates stays empty.
     if (!g_readyEvent.empty()) SetTimer(g_app.host, kReadyTimer, 50, nullptr);
 
     MSG msg;

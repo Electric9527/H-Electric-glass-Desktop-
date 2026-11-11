@@ -83,10 +83,12 @@ Notifications::Notifications(HINSTANCE instance)
 
 void Notifications::SetOptions(double timeoutSeconds, bool hideBody, const std::wstring& placement)
 {
-    const bool placementChanged = topRight_ != (placement == L"topRight");
+    const bool column = placement == L"topRight" || placement == L"topCenter", centred = placement == L"topCenter";
+    const bool placementChanged = topRight_ != column || topCenter_ != centred;
     if (placementChanged) {
         HidePopup(L"placement changed");
-        topRight_ = placement == L"topRight";
+        topRight_ = column;
+        topCenter_ = centred;
     }
     timeout_ = std::clamp(timeoutSeconds, 3.0, 30.0);
     hideBody_ = hideBody;
@@ -408,6 +410,12 @@ void Notifications::Layout(Mode mode)
         const float scale = PopupScale(primary.rcWork);
         const auto layout = notification::TopRightLayout(primary.rcWork, scale, kW, CardHeight(), kGap, kPopupGapDip,
             shown.size(), mode == Mode::Center ? kPill + kGap : 0);
+        RECT rect = layout.rect;
+        if (topCenter_) { // the same column, in the middle of the work area
+            const LONG width = rect.right - rect.left;
+            rect.left = primary.rcWork.left + (primary.rcWork.right - primary.rcWork.left - width) / 2;
+            rect.right = rect.left + width;
+        }
         v.contentH = layout.contentHeight;
         v.viewH = layout.viewHeight;
         v.contentTop = layout.contentTop;
@@ -420,15 +428,18 @@ void Notifications::Layout(Mode mode)
             v.lastPaint = 0;
             SetWindowRgn(v.surface->Hwnd(), nullptr, FALSE);
             v.regionTop = v.regionBottom = -1;
-            // The centre opens at the same corner; arrivals still animate card by card.
-            v.surface->Show(layout.rect, mode == Mode::Center, POINT{layout.rect.right, layout.rect.top}, mode == Mode::Center);
+            // The centre opens at the same corner (top centre: out of its top middle); arrivals still animate card by card.
+            const POINT origin = topCenter_ ? POINT{(rect.left + rect.right) / 2, rect.top} : POINT{rect.right, rect.top};
+            v.surface->Show(rect, mode == Mode::Center, origin, mode == Mode::Center);
+            Log(L"notify: %s shown at %ld,%ld %ldx%ld (%s)", mode == Mode::Center ? L"centre" : L"popup", rect.left, rect.top,
+                rect.right - rect.left, rect.bottom - rect.top, topCenter_ ? L"top centre" : L"top right");
         } else {
             const RECT old = v.surface->Rect();
-            if (!EqualRect(&old, &layout.rect)) {
+            if (!EqualRect(&old, &rect)) {
                 SetWindowRgn(v.surface->Hwnd(), nullptr, FALSE);
                 v.regionTop = v.regionBottom = -1;
             }
-            v.surface->Move(layout.rect);
+            v.surface->Move(rect);
             v.surface->Invalidate();
         }
         return;
@@ -496,6 +507,8 @@ void Notifications::Layout(Mode mode)
         }
         // Pops out of the bell (unless the stack turns into the list in place).
         v.surface->Show(r, mode == Mode::Center, POINT{(bell.left + bell.right) / 2, bottom}, !handoff);
+        Log(L"notify: %s shown at %ld,%ld %ldx%ld (over the bar)", mode == Mode::Center ? L"centre" : L"popup", r.left, r.top,
+            r.right - r.left, r.bottom - r.top);
     } else {
         // The window's top moves when the list grows or shrinks: the cards
         // keep their place on screen and glide from there.
@@ -634,7 +647,7 @@ void Notifications::PaintCard(Canvas& c, const Notice& n, D2D1_RECT_F r, int ind
     std::wstring cardId = L"card:" + std::to_wstring(index), closeId = L"close:" + std::to_wstring(index);
     bool hot = v.hover == cardId || v.hover == closeId;
     bool pressed = v.pressed == cardId || (index == v.front && v.pressed == L"stack");
-    float glow = Ease(v, c, cardId, hot, float(std::clamp(c.now - v.lastPaint, 0.0, 100.0)));
+    float glow = Ease(v, c, cardId, hot, float(motion::FrameDt(c.now, v.lastPaint, 16)));
     float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
     // A pressed card gives way a little, like the glass under it.
     c.BeginGroup(alpha, pressed ? 0.975f : 1 + 0.008f * glow, cx, cy);
@@ -678,7 +691,7 @@ void Notifications::Paint(Mode mode, Canvas& c)
     const Theme& t = c.theme;
     RECT rr = v.surface->Rect();
     const float w = float(rr.right - rr.left) / c.scale;
-    const float dt = v.lastPaint > 0 ? float(std::clamp(c.now - v.lastPaint, 0.0, 100.0)) : 16.f;
+    const float dt = float(motion::FrameDt(c.now, v.lastPaint, 16)); // from rest: one frame, not the idle time
     v.hits.clear();
     auto shown = Shown(mode);
     const bool hideBody = !shown.empty() && BodyHidden(); // one system query per frame, shared by its cards
@@ -745,7 +758,9 @@ void Notifications::Paint(Mode mode, Canvas& c)
         CardAnim& a = v.cards[n.id];
         if (!a.placed) {
             a = {column ? ty : ty + 18, tinset, 0, 1, true};
-            a.x = column ? w : 0; // new top-right card enters; existing cards glide down
+            a.x = column && !topCenter_ ? w : 0; // new top-right card enters; existing cards glide down
+            if (column && topCenter_)
+                a.pop = 0, a.popVel = 0; // a new top-centre card pops out of its middle
         }
         bool cardMoving = false;
         if (stack && v.stackMoving) {
@@ -760,19 +775,31 @@ void Notifications::Paint(Mode mode, Canvas& c)
             cardMoving |= Glide(a.alpha, talpha, dt, 12, 0.01f);
             cardMoving |= Glide(a.content, tcontent, dt, 9, 0.01f);
             cardMoving |= Glide(a.x, 0, dt, 16, 0.2f);
+            if (a.pop != 1 || a.popVel != 0) { // the popup spring: quick, a hint of overshoot
+                motion::kPop.Step(a.pop, a.popVel, 1, dt / 1000.f);
+                if (motion::Spring::AtRest(a.pop, a.popVel, 1))
+                    a.pop = 1, a.popVel = 0;
+                else
+                    cardMoving = true;
+            }
         }
         float alpha = a.alpha, dx = a.x, shrink = 0;
         if (auto l = leaving_.find(n.id); l != leaving_.end()) {
             // Closing: it fades out while drifting right and settling back a little.
             float e = motion::EaseOut(float(std::max(0.0, c.now - l->second) / kLeaveMs));
-            dx += 36 * e;
-            shrink = 0.07f * e;
+            if (topCenter_) {
+                shrink = 0.08f * e; // top centre: back into its middle, as a popup closes
+            } else {
+                dx += 36 * e;
+                shrink = 0.07f * e;
+            }
             alpha *= (1 - e) * (1 - e);
             cardMoving = true;
         }
         if (cardMoving)
             c.Continue();
         moving |= cardMoving;
+        shrink += (1 - a.pop) * 0.08f; // popping: 0.92 of its size to full, as PopVisual
         float sx = (w - 2 * a.inset) * shrink / 2, sy = card * shrink / 2;
         rects[i] = D2D1::RectF(a.inset + dx + sx, a.y + sy, w - a.inset + dx - sx, a.y + card - sy);
         alphas[i] = alpha;

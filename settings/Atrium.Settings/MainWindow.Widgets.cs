@@ -35,6 +35,8 @@ public sealed partial class MainWindow
         new("calendar", "large", "农历月历", "每天下面写农历或节日", "日历"),
         new("notes", "small", "备忘录", "点按即可输入", "效率"),
         new("reminders", "medium", "提醒事项", "勾选完成的事", "效率"),
+        new("countdown", "small", "倒数日", "离最近的日子还有几天", "效率"),
+        new("countdown", "medium", "倒数日", "几个日子的天数", "效率"),
         new("photos", "small", "照片", "「图片」文件夹里的一张", "照片"),
         new("photos", "medium", "照片", "每 10 分钟换一张", "照片"),
         new("battery", "small", "电池", "电量圆环", "系统"),

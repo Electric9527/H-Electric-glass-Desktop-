@@ -55,7 +55,7 @@ void Settings::Clamp()
         dockDisplayMode = L"primary";
     if (taskbarApps != L"primaryAndWindow" && taskbarApps != L"window")
         taskbarApps = L"all";
-    if (notifyPlacement != L"topRight")
+    if (notifyPlacement != L"topRight" && notifyPlacement != L"topCenter")
         notifyPlacement = L"dock";
     if (pins && pins->size() > 64)
         pins->resize(64);
@@ -92,6 +92,7 @@ std::wstring Settings::ToJson() const
         o.SetNamedValue(L"startSize", json::JsonValue::CreateStringValue(startSize));
     o.SetNamedValue(L"showClock", json::JsonValue::CreateBooleanValue(showClock));
     o.SetNamedValue(L"showTray", json::JsonValue::CreateBooleanValue(showTray));
+    o.SetNamedValue(L"showVoice", json::JsonValue::CreateBooleanValue(showVoice));
     o.SetNamedValue(L"showStatus", json::JsonValue::CreateBooleanValue(showStatus));
     o.SetNamedValue(L"showNotifications", json::JsonValue::CreateBooleanValue(showNotifications));
     o.SetNamedValue(L"autoWidth", json::JsonValue::CreateBooleanValue(autoWidth));
@@ -112,6 +113,9 @@ std::wstring Settings::ToJson() const
     o.SetNamedValue(L"notifyListener", json::JsonValue::CreateBooleanValue(notifyListener));
     o.SetNamedValue(L"notifyWeChat", json::JsonValue::CreateBooleanValue(notifyWeChat));
     o.SetNamedValue(L"notifyFeishu", json::JsonValue::CreateBooleanValue(notifyFeishu));
+    o.SetNamedValue(L"notifyQQ", json::JsonValue::CreateBooleanValue(notifyQQ));
+    o.SetNamedValue(L"calmWindows", json::JsonValue::CreateBooleanValue(calmWindows));
+    o.SetNamedValue(L"notifyBilibili", json::JsonValue::CreateBooleanValue(notifyBilibili));
     o.SetNamedValue(L"bar", json::JsonValue::CreateBooleanValue(bar));
     o.SetNamedValue(L"widgets", json::JsonValue::CreateBooleanValue(widgets));
     o.SetNamedValue(L"widgetsOnRight", json::JsonValue::CreateBooleanValue(widgetsOnRight));
@@ -184,6 +188,7 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
         s.startSize = std::wstring(o.GetNamedString(L"startSize"));
     flag(L"showClock", s.showClock);
     flag(L"showTray", s.showTray);
+    flag(L"showVoice", s.showVoice);
     flag(L"showStatus", s.showStatus);
     flag(L"showNotifications", s.showNotifications);
     flag(L"autoWidth", s.autoWidth);
@@ -197,6 +202,9 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
         flag(L"notifyListener", s.notifyListener);
     flag(L"notifyWeChat", s.notifyWeChat);
     flag(L"notifyFeishu", s.notifyFeishu);
+    flag(L"notifyQQ", s.notifyQQ);
+    flag(L"calmWindows", s.calmWindows);
+    flag(L"notifyBilibili", s.notifyBilibili);
     flag(L"bar", s.bar);
     flag(L"widgets", s.widgets);
     flag(L"widgetsOnRight", s.widgetsOnRight);
@@ -374,6 +382,10 @@ bool IsDevelopmentBuild()
         GetModuleFileNameW(nullptr, exe, DWORD(std::size(exe)));
         std::wstring path(exe);
         path = path.substr(0, path.find_last_of(L'\\')) + L"\\development.txt";
+        // This exe is a release build: a development.txt beside it was left by a development package unzipped into the
+        // same folder before. It would keep Windows startup off, so it goes.
+        if (!explicitDevelopment && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES && DeleteFileW(path.c_str()))
+            Log(L"startup: removed development.txt left by a development package");
         return explicitDevelopment || GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
     }();
     return development;

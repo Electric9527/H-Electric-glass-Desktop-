@@ -483,8 +483,20 @@ public sealed partial class MainWindow : Window
 
     private async void OnCheckForUpdates(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync();
 
+    // This build comes from the private repository Electric9527/Liquid-Glass-desktop (the upstream version with our
+    // changes): the upstream project's package would replace it, so nothing is fetched or installed from there.
+    private static readonly bool PrivateBuild = true;
+
     private async Task CheckForUpdatesAsync()
     {
+        if (PrivateBuild)
+        {
+            UpdateAvailableButton.Visibility = Visibility.Collapsed;
+            ReleaseLinks.Visibility = Visibility.Collapsed;
+            UpdateStatus.Text = "此版本由私有仓库 Electric9527/Liquid-Glass-desktop 自动构建，新版本在该仓库的 Releases 中";
+            await Task.CompletedTask;
+            return;
+        }
         if (_updateCheck != null) return;
         using var cancel = new CancellationTokenSource();
         _updateCheck = cancel;
@@ -759,16 +771,20 @@ public sealed partial class MainWindow : Window
         StartTraySwitch.IsOn = _current.StartTray;
         StartStatusSwitch.IsOn = _current.StartStatus;
         (_current.StartSize switch { "small" => StartSmall, "large" => StartLarge, _ => StartMedium }).IsChecked = true;
+        VoiceSwitch.IsOn = _current.ShowVoice;
         StatusSwitch.IsOn = _current.ShowStatus;
         NotificationsSwitch.IsOn = _current.ShowNotifications;
         AutoWidthSwitch.IsOn = _current.AutoWidth;
         HoverRiseSwitch.IsOn = _current.HoverRise;
         RunningSwitch.IsOn = _current.ShowRunning;
         HideBodySwitch.IsOn = _current.NotifyHideBody;
-        (_current.NotifyPlacement == "topRight" ? NotifyAtTopRight : NotifyAtDock).IsChecked = true;
+        (_current.NotifyPlacement switch { "topRight" => NotifyAtTopRight, "topCenter" => NotifyAtTopCenter, _ => NotifyAtDock }).IsChecked = true;
         ListenerSwitch.IsOn = _current.NotifyListener;
         WeChatSwitch.IsOn = _current.NotifyWeChat;
         FeishuSwitch.IsOn = _current.NotifyFeishu;
+        QQSwitch.IsOn = _current.NotifyQQ;
+        CalmSwitch.IsOn = _current.CalmWindows;
+        BilibiliSwitch.IsOn = _current.NotifyBilibili;
         BarSwitch.IsOn = _current.Bar;
         UpdateBarModule();
         WidgetsSwitch.IsOn = _current.Widgets;
@@ -853,6 +869,7 @@ public sealed partial class MainWindow : Window
         _current.ShowTray = TraySwitch.IsOn;
         _current.StartTray = StartTraySwitch.IsOn;
         _current.StartStatus = StartStatusSwitch.IsOn;
+        _current.ShowVoice = VoiceSwitch.IsOn;
         _current.ShowStatus = StatusSwitch.IsOn;
         _current.ShowNotifications = NotificationsSwitch.IsOn;
         Changed();
@@ -1056,6 +1073,27 @@ public sealed partial class MainWindow : Window
     {
         if (_loading || sender is not RadioButton { Tag: string tag }) return;
         _current.AutoHide = tag;
+        Changed();
+    }
+
+    private void OnCalmToggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _current.CalmWindows = CalmSwitch.IsOn;
+        Changed();
+    }
+
+    private void OnQQToggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _current.NotifyQQ = QQSwitch.IsOn;
+        Changed();
+    }
+
+    private void OnBilibiliToggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _current.NotifyBilibili = BilibiliSwitch.IsOn;
         Changed();
     }
 

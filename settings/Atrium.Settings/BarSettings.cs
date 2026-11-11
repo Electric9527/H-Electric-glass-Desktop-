@@ -44,6 +44,7 @@ internal sealed class BarSettings
     public bool StartTray { get; set; } = true;        // the tray's button in the start menu
     public bool StartStatus { get; set; } = true;      // its network, volume and battery buttons
     public string StartSize { get; set; } = "";        // small | medium | large; empty: not known yet (the core fills it in)
+    public bool ShowVoice { get; set; } = true;        // the microphone entry: voice input of the input method
     public bool ShowStatus { get; set; } = true;
     public bool ShowNotifications { get; set; } = true;
     public bool ShowRunning { get; set; } = true;
@@ -60,11 +61,14 @@ internal sealed class BarSettings
     // system's ("run as administrator", "properties").
     public bool WindowsContextMenu { get; set; } = true;
     public double NotifyTimeout { get; set; } = 6;    // seconds a popup stays
-    public string NotifyPlacement { get; set; } = "dock"; // dock (default) | topRight
+    public string NotifyPlacement { get; set; } = "dock"; // dock (default) | topRight | topCenter
     public bool NotifyHideBody { get; set; }           // privacy: no message text, excluded from capture
     public bool NotifyListener { get; set; } = true;   // Windows notifications as Atrium cards
     public bool NotifyFeishu { get; set; } = true;     // Feishu messages as Atrium cards (its own popup, read only)
     public bool NotifyWeChat { get; set; } = true;     // WeChat messages as Atrium cards (its chat list, read only)
+    public bool CalmWindows { get; set; }              // Windows' own minimise/maximise animation off
+    public bool NotifyQQ { get; set; } = true;         // QQ messages as Atrium cards (its popup, or its flashing taskbar button)
+    public bool NotifyBilibili { get; set; } = true;   // the bilibili client's messages (likewise)
     public bool Bar { get; set; } = true;              // the glass bar module (off: Windows' taskbar and banners)
     public bool Widgets { get; set; } = true;          // desktop widgets (their layout is the core's widgets.json)
     public bool WidgetsOnRight { get; set; }
@@ -135,6 +139,7 @@ internal sealed class BarSettings
             ["showTray"] = ShowTray,
             ["startTray"] = StartTray,
             ["startStatus"] = StartStatus,
+            ["showVoice"] = ShowVoice,
             ["showStatus"] = ShowStatus,
             ["showNotifications"] = ShowNotifications,
             ["autoWidth"] = AutoWidth,
@@ -155,6 +160,9 @@ internal sealed class BarSettings
             ["notifyListener"] = NotifyListener,
             ["notifyWeChat"] = NotifyWeChat,
             ["notifyFeishu"] = NotifyFeishu,
+            ["notifyQQ"] = NotifyQQ,
+            ["calmWindows"] = CalmWindows,
+            ["notifyBilibili"] = NotifyBilibili,
             ["bar"] = Bar,
             ["widgets"] = Widgets,
             ["widgetsOnRight"] = WidgetsOnRight,
@@ -217,6 +225,7 @@ internal sealed class BarSettings
         s.StartTray = Flag("startTray", f.StartTray);
         s.StartStatus = Flag("startStatus", f.StartStatus);
         s.StartSize = o?["startSize"] is JsonValue ss0 && ss0.TryGetValue(out string? size) && size is "small" or "medium" or "large" ? size! : f.StartSize;
+        s.ShowVoice = Flag("showVoice", f.ShowVoice);
         s.ShowStatus = Flag("showStatus", f.ShowStatus);
         s.ShowNotifications = Flag("showNotifications", f.ShowNotifications);
         s.AutoWidth = Flag("autoWidth", f.AutoWidth);
@@ -228,6 +237,9 @@ internal sealed class BarSettings
         s.NotifyListener = v1 ? f.NotifyListener : Flag("notifyListener", f.NotifyListener);
         s.NotifyWeChat = Flag("notifyWeChat", f.NotifyWeChat);
         s.NotifyFeishu = Flag("notifyFeishu", f.NotifyFeishu);
+        s.NotifyQQ = Flag("notifyQQ", f.NotifyQQ);
+        s.CalmWindows = Flag("calmWindows", f.CalmWindows);
+        s.NotifyBilibili = Flag("notifyBilibili", f.NotifyBilibili);
         s.Bar = Flag("bar", f.Bar);
         s.Widgets = Flag("widgets", f.Widgets);
         s.WidgetsOnRight = Flag("widgetsOnRight", f.WidgetsOnRight);
@@ -255,7 +267,7 @@ internal sealed class BarSettings
         s.TaskbarApps = apps is "primaryAndWindow" or "window" ? apps : "all";
         s.TaskbarRightPrimaryOnly = Flag("taskbarRightPrimaryOnly", f.TaskbarRightPrimaryOnly);
         s.WindowsContextMenu = Flag("windowsContextMenu", f.WindowsContextMenu);
-        s.NotifyPlacement = Display("notifyPlacement", f.NotifyPlacement) == "topRight" ? "topRight" : "dock";
+        s.NotifyPlacement = Display("notifyPlacement", f.NotifyPlacement) switch { "topRight" => "topRight", "topCenter" => "topCenter", _ => "dock" };
         s.TextColor = o?["textColor"] is JsonValue tc && tc.TryGetValue(out string? tcs) && tcs != null
             ? (tcs is "light" or "dark" ? tcs : "auto")
             : f.TextColor;
@@ -285,9 +297,10 @@ internal sealed class BarSettings
     public bool SameAs(BarSettings o) =>
         SameMaterial(o) && Preset == o.Preset && CornerRadius == o.CornerRadius && Width == o.Width && Height == o.Height &&
         Margin == o.Margin && IconSize == o.IconSize && Magnify == o.Magnify && HoverRise == o.HoverRise && AutoWidth == o.AutoWidth && ShowClock == o.ShowClock &&
-        ShowTray == o.ShowTray && StartTray == o.StartTray && StartStatus == o.StartStatus && StartSize == o.StartSize && ShowStatus == o.ShowStatus && ShowNotifications == o.ShowNotifications &&
+        ShowTray == o.ShowTray && ShowVoice == o.ShowVoice && StartTray == o.StartTray && StartStatus == o.StartStatus && StartSize == o.StartSize && ShowStatus == o.ShowStatus && ShowNotifications == o.ShowNotifications &&
         ShowRunning == o.ShowRunning && TextColor == o.TextColor && AutoHide == o.AutoHide && StatusStyle == o.StatusStyle && NotifyTimeout == o.NotifyTimeout && NotifyHideBody == o.NotifyHideBody &&
-        NotifyListener == o.NotifyListener && NotifyWeChat == o.NotifyWeChat && NotifyFeishu == o.NotifyFeishu && Bar == o.Bar && Widgets == o.Widgets &&
+        NotifyListener == o.NotifyListener && NotifyWeChat == o.NotifyWeChat && NotifyFeishu == o.NotifyFeishu &&
+        NotifyQQ == o.NotifyQQ && NotifyBilibili == o.NotifyBilibili && CalmWindows == o.CalmWindows && Bar == o.Bar && Widgets == o.Widgets &&
         WidgetsOnRight == o.WidgetsOnRight && WidgetBackdrop == o.WidgetBackdrop && StageManager == o.StageManager && StageOnRight == o.StageOnRight &&
         StageAutoHide == o.StageAutoHide && StageMinimize == o.StageMinimize && WidgetMaterial == o.WidgetMaterial &&
         HideTaskbar == o.HideTaskbar && HideBanners == o.HideBanners && WinKeyStart == o.WinKeyStart && WinNumbers == o.WinNumbers &&

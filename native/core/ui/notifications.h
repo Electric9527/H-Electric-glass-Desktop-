@@ -1,5 +1,6 @@
-// Notifications above the bar by default, or at the primary display's top right.
-// Top-right arrivals push older cards down; the notification centre uses the same position.
+// Notifications above the bar, at the primary display's top right, or at the top centre of it.
+// Top-right and top-centre arrivals push older cards down (top-centre ones pop out of their own
+// middle, as a popup opens); the notification centre uses the same position.
 // New notices pop up without taking the focus and time out; the bell opens
 // the list, with a capsule like the bar below the cards for its controls,
 // unread marks, dismiss and clear. Senders are internal
@@ -72,6 +73,7 @@ private:
         float content = 1; // the card's text (cards behind the stack's front show none)
         bool placed = false;
         float x = 0; // top-right arrivals slide in from the screen edge
+        float pop = 1, popVel = 0; // top-centre arrivals: 0..1 on the popup spring, the card scaled about its middle
     };
     struct View {
         std::unique_ptr<Surface> surface;
@@ -134,7 +136,8 @@ private:
     uint64_t nextId_ = 1;
     double timeout_ = 6;
     bool hideBody_ = false;
-    bool topRight_ = false;
+    bool topRight_ = false;  // a column at the top of the primary display (top right or top centre)
+    bool topCenter_ = false; // ...at its centre
     ULONGLONG centerClosed_ = 0;
     float radius_ = 20;
     std::map<uint64_t, double> leaving_; // closing cards: ClockMs() when closed

@@ -120,12 +120,15 @@ void WindowPreview::Show(const std::wstring& key, const std::vector<HWND>& windo
         return;
     if (!same) {
         hover_ = pressed_ = -1;
-        // Reusing the open surface does not send onReady again. Keep its fade
-        // progress when switching apps instead of leaving the new picture invisible.
-        if (!visible)
-            thumbAlpha_ = 0;
+        thumbAlpha_ = 0;
+        if (visible) {
+            // Reusing the open surface sends no onReady: the pictures fade in once the glass has popped
+            // out again (the pop's own fade takes 0.16 s).
+            fadeStart_ = ClockMs() + 60;
+            SetTimer(surface_.Hwnd(), kFadeTimer, 15, nullptr);
+        }
     }
-    Place();
+    Place(visible && !same);
     if (!same)
         Log(L"preview: %zu window(s) of %s", cards_.size(), key_.c_str());
 }
@@ -172,7 +175,7 @@ void WindowPreview::Layout(float scale, float maxWidthDip)
     size_ = D2D1::SizeF(x - kGap + kPad, kPad + kCardPad + kTitleH + imageH + kCardPad + kPad);
 }
 
-void WindowPreview::Place()
+void WindowPreview::Place(bool repop)
 {
     RECT probe{anchor_.x, anchor_.y, anchor_.x + 1, anchor_.y + 1};
     const float s = PopupScale(probe);
@@ -185,9 +188,9 @@ void WindowPreview::Place()
     LONG x = std::clamp<LONG>(anchor_.x - w / 2, work.left + gap, std::max<LONG>(work.left + gap, work.right - gap - w));
     LONG y = std::max<LONG>(work.top, anchor_.y - gap - h);
     RECT r{x, y, x + w, y + h};
-    if (surface_.Visible())
+    if (surface_.Visible() && !repop)
         surface_.Move(r);
-    else
+    else // opens, or another app's windows: pops out of the anchor (content and glass, PopVisual)
         surface_.Show(r, false, POINT{anchor_.x, anchor_.y});
     surface_.Invalidate();
 }

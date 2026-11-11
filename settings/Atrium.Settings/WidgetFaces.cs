@@ -286,6 +286,50 @@ internal static partial class WidgetFaces
                 }
                 break;
             }
+            case "countdown":
+            {
+                // PaintCountdown: examples counted from today; the core counts what was typed.
+                (string Name, int Days)[] items = { ("项目上线", 9), ("旅行出发", 23), ("爸爸生日", 64), ("春节", 88) };
+                string DateText(int days) => DateTime.Today.AddDays(days).ToString("yyyy年M月d日");
+                Color Accent(int days) => days <= 7 ? p.Red : p.Blue;
+                if (size == "small")
+                {
+                    var e = items[0];
+                    string number = e.Days.ToString();
+                    Text(c, "倒数日", Pad + 2, Pad - 2, w - Pad - 30, Pad + 18, 13.5, p.Orange, 2, 0, p);
+                    Text(c, "+", w - Pad - 26, Pad - 6, w - Pad + 2, Pad + 22, 19, p.Faint, 0, 1, p);
+                    Text(c, e.Name, Pad + 2, Pad + 22, w - Pad - 2, Pad + 42, 13.5, p.Text, 0, 0, p);
+                    Text(c, number, Pad + 2, h - 100, w - Pad, h - 36, 52, Accent(e.Days), 2, 0, p);
+                    Text(c, "天", Pad + 2 + TextWidth(number, 52, "TitleFont") + 4, h - 66, w - Pad + 4, h - 40, 15, p.Sub, 0, 0, p);
+                    Text(c, DateText(e.Days), Pad + 2, h - Pad - 18, w - Pad, h - Pad, 11.5, p.Sub, 0, 0, p);
+                    break;
+                }
+                Text(c, "倒数日", Pad + 2, Pad - 2, w - Pad - 40, Pad + 18, 13.5, p.Orange, 2, 0, p);
+                const double RowH = 27, Top = Pad + 28;
+                int slots = Math.Max(1, (int)((h - Pad - Top) / RowH));
+                int shown = 0;
+                foreach (var it in items)
+                {
+                    if (shown >= slots - 1) break;
+                    double y = Top + RowH * shown, cy = y + RowH / 2;
+                    string number = it.Days.ToString(), date = DateText(it.Days);
+                    double unitW = TextWidth("天", 11.5, "TextFont"), numW = TextWidth(number, 15, "TitleFont");
+                    Circle(c, Pad + 9, cy, 3.6, Accent(it.Days));
+                    Text(c, "天", w - Pad - unitW - 8, y, w - Pad, y + RowH, 11.5, p.Sub, 0, 2, p);
+                    Text(c, number, Pad + 26, y, w - Pad - unitW - 4, y + RowH, 15, Accent(it.Days), 2, 2, p);
+                    double dateRight = w - Pad - (unitW + 4) - numW - 12, dateW = TextWidth(date, 11.5, "TextFont");
+                    Text(c, date, Pad + 26, y, dateRight, y + RowH, 11.5, p.Faint, 0, 2, p);
+                    Text(c, it.Name, Pad + 26, y, Math.Max(Pad + 50, dateRight - dateW - 10), y + RowH, 13.5, p.Text, 0, 0, p);
+                    shown++;
+                }
+                if (shown < slots)
+                {
+                    double y = Top + RowH * shown;
+                    Text(c, "+", Pad - 1, y, Pad + 19, y + RowH, 17, p.Faint, 0, 1, p);
+                    Text(c, "新倒数日", Pad + 26, y, w - Pad, y + RowH, 13.5, p.Faint, 0, 0, p);
+                }
+                break;
+            }
             case "photos":
                 c.Children.Add(new Rectangle { Width = w, Height = h, RadiusX = 22, RadiusY = 22, Fill = photo });
                 break;
@@ -303,6 +347,7 @@ internal static partial class WidgetFaces
         "clock" => DateTime.Now.Ticks / TimeSpan.TicksPerSecond,
         "digital" => DateTime.Now.Ticks / TimeSpan.TicksPerMinute,
         "calendar" => DateTime.Today.Ticks,
+        "countdown" => DateTime.Today.Ticks,
         "battery" => BatteryStamp(),
         "weather" => WeatherStamp(),
         _ => 0,

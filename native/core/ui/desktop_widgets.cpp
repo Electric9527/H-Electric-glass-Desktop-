@@ -1,5 +1,8 @@
 #include "ui/desktop_widgets.h"
 
+#include "ui/countdown.h"
+#include "ui/countdown_lunar.h"
+
 #include "clock.h"
 #include "log.h"
 #include "motion.h"
@@ -52,7 +55,7 @@ struct KindName {
 const KindName kKinds[] = {{WidgetKind::Clock, L"clock"},     {WidgetKind::Calendar, L"calendar"},   {WidgetKind::Battery, L"battery"},
                            {WidgetKind::Digital, L"digital"}, {WidgetKind::System, L"system"},       {WidgetKind::Notes, L"notes"},
                            {WidgetKind::Reminders, L"reminders"}, {WidgetKind::Photos, L"photos"},  {WidgetKind::Weather, L"weather"},
-                           {WidgetKind::Bluetooth, L"bluetooth"}};
+                           {WidgetKind::Bluetooth, L"bluetooth"}, {WidgetKind::Countdown, L"countdown"}};
 
 const wchar_t* NameOf(WidgetKind k)
 {
@@ -72,7 +75,9 @@ bool ParseKind(const std::wstring& s, WidgetKind& k)
 }
 const wchar_t* SizeName(WidgetSize s) { return s == WidgetSize::Small ? L"small" : s == WidgetSize::Medium ? L"medium" : L"large"; }
 WidgetSize ParseSize(const std::wstring& s) { return s == L"large" ? WidgetSize::Large : s == L"medium" ? WidgetSize::Medium : WidgetSize::Small; }
-bool Editable(WidgetKind k) { return k == WidgetKind::Notes || k == WidgetKind::Reminders; }
+bool Editable(WidgetKind k) { return k == WidgetKind::Notes || k == WidgetKind::Reminders || k == WidgetKind::Countdown; }
+// Widgets that are a list of typed lines (WidgetContent::items): reminders and countdowns.
+bool Listed(WidgetKind k) { return k == WidgetKind::Reminders || k == WidgetKind::Countdown; }
 bool Resizable(WidgetKind k) { return WidgetSupports(k, WidgetSize::Medium) || WidgetSupports(k, WidgetSize::Large); }
 
 std::wstring LayoutPath()
@@ -468,8 +473,27 @@ void DesktopWidgets::Load()
                         if (iv.ValueType() != json::JsonValueType::Object)
                             continue;
                         json::JsonObject io = iv.GetObject();
-                        content.items.push_back({std::wstring(io.GetNamedString(L"text", L"")), io.GetNamedBoolean(L"done", false)});
+                        Reminder item{std::wstring(io.GetNamedString(L"text", L"")), io.GetNamedBoolean(L"done", false)};
+                        if (k == WidgetKind::Countdown) { // its optional extras
+                            item.hms = io.GetNamedBoolean(L"hms", false);
+                            item.tod = std::clamp(int(io.GetNamedNumber(L"tod", 0)), 0, 86399);
+                            if (io.HasKey(L"color") && io.GetNamedValue(L"color").ValueType() == json::JsonValueType::Number) {
+                                item.hasColor = true;
+                                item.color = uint32_t(io.GetNamedNumber(L"color", 0)) & 0xFFFFFFu;
+                            }
+                            item.note = io.GetNamedString(L"note", L"");
+                            item.note = CountdownClip({}, item.note, kCountdownNoteMax);
+                            item.lunar = io.GetNamedBoolean(L"lunar", false);
+                            item.lunarMonth = std::clamp(int(io.GetNamedNumber(L"lm", 1)), 1, 12);
+                            item.lunarDay = std::clamp(int(io.GetNamedNumber(L"ld", 1)), 1, 30);
+                            item.remind = io.GetNamedBoolean(L"remind", true);
+                            item.reminded = io.GetNamedString(L"reminded", L"");
+                            item.pinned = io.GetNamedBoolean(L"pinned", false);
+                        }
+                        content.items.push_back(std::move(item));
                     }
+                if (k == WidgetKind::Countdown)
+                    content.cdStyle = std::wstring(e.GetNamedString(L"style", L"list")) == L"large" ? 1 : 0;
                 if (!add(k, ParseSize(std::wstring(e.GetNamedString(L"size", L"small"))), int(e.GetNamedNumber(L"col", 0)),
                          int(e.GetNamedNumber(L"row", 0)), std::move(content)))
                     unplaced_.emplace_back(e.Stringify());
@@ -498,7 +522,7 @@ void DesktopWidgets::Save() const
         const WidgetContent& c = w->content;
         if (w->kind == WidgetKind::Notes)
             e.SetNamedValue(L"text", json::JsonValue::CreateStringValue(c.text));
-        if (w->kind == WidgetKind::Reminders) {
+        if (Listed(w->kind)) {
             json::JsonArray items;
             for (const Reminder& r : c.items) {
                 if (r.text.empty())
@@ -506,10 +530,33 @@ void DesktopWidgets::Save() const
                 json::JsonObject io;
                 io.SetNamedValue(L"text", json::JsonValue::CreateStringValue(r.text));
                 io.SetNamedValue(L"done", json::JsonValue::CreateBooleanValue(r.done));
+                if (w->kind == WidgetKind::Countdown) { // the extras are written only when set
+                    if (r.hms) {
+                        io.SetNamedValue(L"hms", json::JsonValue::CreateBooleanValue(true));
+                        io.SetNamedValue(L"tod", json::JsonValue::CreateNumberValue(r.tod));
+                    }
+                    if (r.hasColor)
+                        io.SetNamedValue(L"color", json::JsonValue::CreateNumberValue(double(r.color)));
+                    if (!r.note.empty())
+                        io.SetNamedValue(L"note", json::JsonValue::CreateStringValue(r.note));
+                    if (r.lunar) {
+                        io.SetNamedValue(L"lunar", json::JsonValue::CreateBooleanValue(true));
+                        io.SetNamedValue(L"lm", json::JsonValue::CreateNumberValue(r.lunarMonth));
+                        io.SetNamedValue(L"ld", json::JsonValue::CreateNumberValue(r.lunarDay));
+                    }
+                    if (!r.remind)
+                        io.SetNamedValue(L"remind", json::JsonValue::CreateBooleanValue(false));
+                    if (!r.reminded.empty())
+                        io.SetNamedValue(L"reminded", json::JsonValue::CreateStringValue(r.reminded));
+                    if (r.pinned)
+                        io.SetNamedValue(L"pinned", json::JsonValue::CreateBooleanValue(true));
+                }
                 items.Append(io);
             }
             e.SetNamedValue(L"items", items);
         }
+        if (w->kind == WidgetKind::Countdown && c.cdStyle == 1)
+            e.SetNamedValue(L"style", json::JsonValue::CreateStringValue(L"large"));
         if (w->kind == WidgetKind::Photos && !c.folder.empty())
             e.SetNamedValue(L"folder", json::JsonValue::CreateStringValue(c.folder));
         if (!c.cities.empty()) {
@@ -942,14 +989,57 @@ void DesktopWidgets::Tick()
     weather_->SetActive(std::any_of(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::Weather; }));
     // The Bluetooth batteries are read while a Bluetooth widget is.
     bluetooth_->SetActive(std::any_of(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::Bluetooth; }));
+    RemindCountdowns(t);
     for (auto& w : widgets_) {
         if (!w->surface)
             continue;
-        if (w->kind == WidgetKind::Clock || minute || (sample && w->kind == WidgetKind::System))
+        // A countdown that counts to the second is painted every second.
+        const bool seconds = w->kind == WidgetKind::Countdown &&
+                             std::any_of(w->content.items.begin(), w->content.items.end(), [](const Reminder& r) { return r.hms; });
+        if (w->kind == WidgetKind::Clock || seconds || minute || (sample && w->kind == WidgetKind::System))
             w->surface->Invalidate();
         if (w->kind == WidgetKind::Photos && w->photoAt && now - w->photoAt > kPhotoMs)
             LoadPhoto(*w, true);
     }
+}
+
+// A countdown entry's day (or moment) has come: one card (onCountdownDue), once per day, kept across restarts.
+void DesktopWidgets::RemindCountdowns(const SYSTEMTIME& now)
+{
+    const int second = now.wHour * 3600 + now.wMinute * 60 + now.wSecond;
+    bool changed = false;
+    for (auto& w : widgets_) {
+        if (w->kind != WidgetKind::Countdown)
+            continue;
+        for (size_t i = 0; i < w->content.items.size(); ++i) {
+            if (w->content.editing && int(i) == w->content.item)
+                continue; // being edited
+            Reminder& it = w->content.items[i];
+            if (!it.remind)
+                continue;
+            CountdownEntry e = ParseCountdown(it.text, now.wYear, now.wMonth, now.wDay);
+            ResolveLunar(e, it, &lunar_, now, false);
+            if (!e.hasDate || e.days != 0 || (it.hms && second < it.tod))
+                continue;
+            wchar_t key[40];
+            if (it.hms)
+                swprintf(key, 40, L"%04d-%02d-%02dT%d", e.year, e.month, e.day, it.tod);
+            else
+                swprintf(key, 40, L"%04d-%02d-%02d", e.year, e.month, e.day);
+            if (it.reminded == key)
+                continue;
+            it.reminded = key;
+            changed = true;
+            if (onCountdownDue) {
+                std::wstring body = it.hms ? L"时间到了" : L"就是今天";
+                if (!it.note.empty())
+                    body += L" · " + it.note;
+                onCountdownDue(e.name.empty() ? std::wstring(L"倒数日") : e.name, body);
+            }
+        }
+    }
+    if (changed)
+        SaveSoon();
 }
 
 void DesktopWidgets::SampleSystem()
@@ -1052,7 +1142,7 @@ bool DesktopWidgets::Message(Widget& w, UINT m, WPARAM wp, LPARAM lp, LRESULT& r
         return false;
     }
     case WM_MOUSEWHEEL:
-        if (w.kind != WidgetKind::Reminders)
+        if (!Listed(w.kind))
             return false;
         w.content.scroll = std::clamp(w.content.scroll - float(GET_WHEEL_DELTA_WPARAM(wp)) / WHEEL_DELTA * kReminderRow * 3,
                                       0.f, ReminderScrollMax(w.content, w.size));
@@ -1239,6 +1329,10 @@ void DesktopWidgets::Activate(Widget& w)
 
 void DesktopWidgets::Click(Widget& w, POINT content)
 {
+    if (w.kind == WidgetKind::Countdown) {
+        ClickCountdown(w, content);
+        return;
+    }
     if (w.kind == WidgetKind::Notes) {
         StartEdit(w, -1);
         return;
@@ -1272,22 +1366,255 @@ void DesktopWidgets::Click(Widget& w, POINT content)
     }
 }
 
+namespace {
+// An arrow of the countdown editor's year, month or day. A month and a day wrap round; the day
+// always stays inside its month.
+void StepCountdownDate(WidgetContent& c, wchar_t which, int delta)
+{
+    if (c.editLunar) { // a lunar month (1-12) and day (1-30), every year
+        if (which == L'm')
+            c.editLunarMonth = (c.editLunarMonth - 1 + delta + 12) % 12 + 1;
+        else if (which == L'd')
+            c.editLunarDay = (c.editLunarDay - 1 + delta + 30) % 30 + 1;
+        return;
+    }
+    if (which == L'y') {
+        c.editYear = std::clamp(c.editYear + delta, 1900, 2999);
+    } else if (which == L'm') {
+        c.editMonth = (c.editMonth - 1 + delta + 12) % 12 + 1;
+    } else {
+        const int n = CountdownDaysInMonth(c.editYear, c.editMonth);
+        c.editDay = (c.editDay - 1 + delta + n) % n + 1;
+    }
+    c.editDay = std::min(c.editDay, CountdownDaysInMonth(c.editYear, c.editMonth));
+}
+// An arrow of the hours, minutes or seconds ('h', 'n', 's'); each wraps round.
+void StepCountdownTime(WidgetContent& c, wchar_t which, int delta)
+{
+    int& v = which == L'h' ? c.editHour : which == L'n' ? c.editMin : c.editSec;
+    const int n = which == L'h' ? 24 : 60;
+    v = (v + delta + n) % n;
+}
+} // namespace
+
+void DesktopWidgets::ClickCountdown(Widget& w, POINT content)
+{
+    float s = w.surface->Scale();
+    D2D1_POINT_2F p = D2D1::Point2F(float(content.x) / s, float(content.y) / s);
+    std::wstring id;
+    for (const WidgetHit& h : w.hits)
+        if (h.id != L"caret" && p.x >= h.rect.left && p.x < h.rect.right && p.y >= h.rect.top && p.y < h.rect.bottom) {
+            id = h.id;
+            break;
+        }
+    if (id.empty())
+        return; // nothing but the buttons answers
+    WidgetContent& c = w.content;
+    if (c.editing) {
+        if (id == L"name" || id == L"note") {
+            c.caret = (id == L"name" ? c.editName : c.editNote).size();
+            c.caretOn = true;
+            if (GetForegroundWindow() != w.surface->Hwnd())
+                SetForegroundWindow(w.surface->Hwnd());
+            SetFocus(w.surface->Hwnd());
+        } else if (id == L"pg-" || id == L"pg+") {
+            c.editPage = (c.editPage + (id == L"pg+" ? 1 : 3)) % 4;
+            c.caret = (c.editPage == 2 ? c.editNote : c.editName).size();
+            c.caretOn = true;
+        } else if (id == L"hms") {
+            c.editHms = !c.editHms;
+        } else if (id == L"remind") {
+            c.editRemind = !c.editRemind;
+        } else if (id == L"pin") {
+            c.editPinned = !c.editPinned;
+        } else if (id == L"lunar") {
+            // The same day, the other calendar: today's choice becomes its lunar month and day, or back.
+            SYSTEMTIME now;
+            GetLocalTime(&now);
+            if (!c.editLunar) {
+                int lm = 0, ld = 0, cycle = 0;
+                bool leap = false;
+                if (lunar_.Lunar(c.editYear, c.editMonth, c.editDay, lm, ld, leap, cycle)) {
+                    c.editLunar = true;
+                    c.editLunarMonth = lm;
+                    c.editLunarDay = ld;
+                }
+            } else {
+                int y = 0, m = 0, d = 0;
+                if (NextLunarDate(lunar_, c.editLunarMonth, c.editLunarDay, now.wYear, now.wMonth, now.wDay, y, m, d))
+                    c.editYear = y, c.editMonth = m, c.editDay = d;
+                c.editLunar = false;
+            }
+        } else if (id.rfind(L"c:", 0) == 0) { // a colour swatch: 0 none, 1.. the accents
+            const int i = _wtoi(id.c_str() + 2);
+            c.editHasColor = i > 0 && i <= int(std::size(kCountdownColors));
+            c.editColor = c.editHasColor ? kCountdownColors[i - 1] : 0;
+        } else if (id.rfind(L"hue:", 0) == 0) {
+            c.editHasColor = true;
+            c.editColor = CountdownHue(_wtoi(id.c_str() + 4));
+        } else if (id == L"ok") {
+            FinishCountdown(w, true, false);
+        } else if (id == L"cancel") {
+            FinishCountdown(w, false, false);
+        } else if (id == L"del") {
+            FinishCountdown(w, false, true);
+        } else if (id.size() == 2 && (id[0] == L'y' || id[0] == L'm' || id[0] == L'd') && (id[1] == L'+' || id[1] == L'-')) {
+            StepCountdownDate(c, id[0], id[1] == L'+' ? 1 : -1);
+        } else if (id.size() == 2 && (id[0] == L'h' || id[0] == L'n' || id[0] == L's') && (id[1] == L'+' || id[1] == L'-')) {
+            StepCountdownTime(c, id[0], id[1] == L'+' ? 1 : -1);
+        }
+    } else if (id == L"manage") {
+        if (c.items.empty()) {
+            OpenCountdownEditor(w, -1);
+        } else {
+            c.manage = true;
+            c.scroll = 0;
+        }
+    } else if (id == L"done") {
+        c.manage = false;
+        c.scroll = 0;
+    } else if (id == L"new") {
+        OpenCountdownEditor(w, -1);
+    } else if (id.rfind(L"item:", 0) == 0) {
+        OpenCountdownEditor(w, _wtoi(id.c_str() + 5));
+    } else if (id.rfind(L"up:", 0) == 0 || id.rfind(L"down:", 0) == 0) { // the manage mode's arrows
+        const bool up = id[0] == L'u';
+        const int i = _wtoi(id.c_str() + (up ? 3 : 5)), j = up ? i - 1 : i + 1;
+        if (i >= 0 && j >= 0 && i < int(c.items.size()) && j < int(c.items.size())) {
+            std::swap(c.items[size_t(i)], c.items[size_t(j)]);
+            Save();
+        }
+    }
+    if (w.surface)
+        w.surface->Invalidate();
+}
+
+void DesktopWidgets::OpenCountdownEditor(Widget& w, int index)
+{
+    WidgetContent& c = w.content;
+    SYSTEMTIME now;
+    GetLocalTime(&now);
+    c.editNew = index < 0;
+    c.editYear = now.wYear;
+    c.editMonth = now.wMonth;
+    c.editDay = now.wDay;
+    c.editName.clear();
+    c.editPage = 0;
+    c.editHms = false;
+    c.editHour = c.editMin = c.editSec = 0;
+    c.editNote.clear();
+    c.editHasColor = false;
+    c.editColor = 0;
+    c.editLunar = false;
+    c.editLunarMonth = c.editLunarDay = 1;
+    c.editRemind = true;
+    c.editPinned = false;
+    if (c.editNew) {
+        c.items.push_back({}); // dropped again when the editor is cancelled; empty ones are never saved
+        index = int(c.items.size()) - 1;
+    } else if (index >= 0 && index < int(c.items.size())) {
+        const CountdownEntry e = ParseCountdown(c.items[size_t(index)].text, now.wYear, now.wMonth, now.wDay);
+        const Reminder& it = c.items[size_t(index)];
+        c.editName = e.hasDate ? e.name : it.text;
+        c.editHms = it.hms;
+        c.editHour = it.tod / 3600, c.editMin = it.tod % 3600 / 60, c.editSec = it.tod % 60;
+        c.editNote = it.note;
+        c.editHasColor = it.hasColor;
+        c.editColor = it.color;
+        c.editLunar = it.lunar;
+        c.editLunarMonth = it.lunarMonth;
+        c.editLunarDay = it.lunarDay;
+        c.editRemind = it.remind;
+        c.editPinned = it.pinned;
+        if (e.hasDate) {
+            c.editYear = e.year;
+            c.editMonth = e.month;
+            c.editDay = e.day;
+        }
+    } else {
+        return;
+    }
+    c.editing = true;
+    c.item = index;
+    c.caret = c.editName.size();
+    c.caretOn = true;
+    SetTimer(host_, kCaretTimer, kCaretMs, nullptr);
+    if (GetForegroundWindow() != w.surface->Hwnd())
+        SetForegroundWindow(w.surface->Hwnd());
+    SetFocus(w.surface->Hwnd());
+    w.surface->Invalidate();
+}
+
+void DesktopWidgets::FinishCountdown(Widget& w, bool save, bool remove)
+{
+    WidgetContent& c = w.content;
+    if (c.editing && c.item >= 0 && c.item < int(c.items.size())) {
+        if (save) {
+            Reminder& it = c.items[size_t(c.item)];
+            const Reminder before = it;
+            if (c.editLunar) { // the text keeps the next Gregorian day of the lunar date
+                SYSTEMTIME now;
+                GetLocalTime(&now);
+                int y = 0, m = 0, d = 0;
+                if (NextLunarDate(lunar_, c.editLunarMonth, c.editLunarDay, now.wYear, now.wMonth, now.wDay, y, m, d))
+                    c.editYear = y, c.editMonth = m, c.editDay = d;
+            }
+            it.text = CountdownText(c.editName, c.editYear, c.editMonth, c.editDay);
+            it.hms = c.editHms;
+            it.tod = c.editHour * 3600 + c.editMin * 60 + c.editSec;
+            it.lunar = c.editLunar;
+            it.lunarMonth = c.editLunarMonth;
+            it.lunarDay = c.editLunarDay;
+            it.remind = c.editRemind;
+            if (before.text != it.text || before.hms != it.hms || before.tod != it.tod || before.lunar != it.lunar ||
+                before.lunarMonth != it.lunarMonth || before.lunarDay != it.lunarDay)
+                it.reminded.clear(); // a new day: it is told when that comes
+            const bool pinnedNow = c.editPinned && !it.pinned;
+            it.pinned = c.editPinned;
+            it.hasColor = c.editHasColor;
+            it.color = c.editColor;
+            const size_t a = c.editNote.find_first_not_of(L" \t\u3000"), b = c.editNote.find_last_not_of(L" \t\u3000");
+            it.note = a == std::wstring::npos ? std::wstring() : c.editNote.substr(a, b - a + 1);
+            if (pinnedNow && c.item > 0) { // pinned: to the top of the list too
+                Reminder moved = std::move(it);
+                c.items.erase(c.items.begin() + c.item);
+                c.items.insert(c.items.begin(), std::move(moved));
+            }
+        } else if (remove || c.editNew)
+            c.items.erase(c.items.begin() + c.item);
+    }
+    c.editing = false;
+    c.item = -1;
+    c.editNew = false;
+    c.editName.clear();
+    c.editNote.clear();
+    c.editPage = 0;
+    if (c.items.empty())
+        c.manage = false; // nothing left to manage
+    KillTimer(host_, kSaveTimer);
+    Save();
+    if (w.surface) {
+        w.surface->Invalidate();
+        PostMessageW(host_, WM_WIDGET_RESTACK, 0, 0); // back under the windows
+    }
+}
+
 void DesktopWidgets::StartEdit(Widget& w, int item)
 {
     WidgetContent& c = w.content;
     if (c.editing && c.item != item) {
         // Another reminder: an empty one being left goes, which may move this one up.
-        if (w.kind == WidgetKind::Reminders && c.item >= 0 && c.item < item && c.items[size_t(c.item)].text.empty())
+        if (Listed(w.kind) && c.item >= 0 && c.item < item && c.items[size_t(c.item)].text.empty())
             --item;
         EndEdit(w);
     }
-    if (w.kind == WidgetKind::Reminders && (item < 0 || item >= int(c.items.size())))
+    if (Listed(w.kind) && (item < 0 || item >= int(c.items.size())))
         return;
     c.editing = true;
     c.item = item;
     c.caret = w.kind == WidgetKind::Notes ? c.text.size() : c.items[size_t(item)].text.size();
     c.caretOn = true;
-    if (w.kind == WidgetKind::Reminders) {
+    if (Listed(w.kind)) {
         float view = WidgetHeight(w.size) - kReminderTop - kReminderBottom;
         float top = float(item) * kReminderRow;
         c.scroll = std::clamp(c.scroll, std::max(0.f, top + kReminderRow - view), top);
@@ -1302,10 +1629,10 @@ void DesktopWidgets::StartEdit(Widget& w, int item)
 void DesktopWidgets::EndEdit(Widget& w)
 {
     WidgetContent& c = w.content;
-    if (!c.editing)
+    if (!c.editing || w.kind == WidgetKind::Countdown) // a countdown's editor closes with its own buttons (FinishCountdown)
         return;
     c.editing = false;
-    if (w.kind == WidgetKind::Reminders && c.item >= 0 && c.item < int(c.items.size()) && c.items[size_t(c.item)].text.empty())
+    if (Listed(w.kind) && c.item >= 0 && c.item < int(c.items.size()) && c.items[size_t(c.item)].text.empty())
         c.items.erase(c.items.begin() + c.item); // nothing was typed
     c.item = -1;
     KillTimer(host_, kSaveTimer);
@@ -1318,12 +1645,22 @@ void DesktopWidgets::EndEdit(Widget& w)
 void DesktopWidgets::Insert(Widget& w, const std::wstring& s)
 {
     WidgetContent& c = w.content;
-    std::wstring& text = w.kind == WidgetKind::Notes ? c.text : c.items[size_t(c.item)].text;
+    std::wstring& text = w.kind == WidgetKind::Notes ? c.text
+                         : w.kind == WidgetKind::Countdown ? (c.editPage == 2 ? c.editNote : c.editName)
+                                                           : c.items[size_t(c.item)].text;
     std::wstring add = s;
-    if (w.kind == WidgetKind::Reminders) // one line
+    if (Listed(w.kind)) // one line
         std::replace_if(add.begin(), add.end(), [](wchar_t ch) { return ch == L'\r' || ch == L'\n'; }, L' ');
     else
         add.erase(std::remove(add.begin(), add.end(), L'\r'), add.end());
+    if (w.kind == WidgetKind::Countdown && (c.editPage == 1 || c.editPage == 3))
+        return; // the time and switch pages have no text
+    if (w.kind == WidgetKind::Countdown) { // a name fits one line; the message is at most 20 characters
+        if (c.editPage == 2)
+            add = CountdownClip(text, add, kCountdownNoteMax);
+        else
+            add.resize(std::min(add.size(), text.size() < 40 ? 40 - text.size() : size_t(0)));
+    }
     c.caret = std::min(c.caret, text.size());
     text.insert(c.caret, add);
     c.caret += add.size();
@@ -1332,9 +1669,13 @@ void DesktopWidgets::Insert(Widget& w, const std::wstring& s)
 bool DesktopWidgets::Key(Widget& w, UINT m, WPARAM wp)
 {
     WidgetContent& c = w.content;
-    if (w.kind == WidgetKind::Reminders && (c.item < 0 || c.item >= int(c.items.size())))
+    if (Listed(w.kind) && (c.item < 0 || c.item >= int(c.items.size())))
         return false;
-    std::wstring& text = w.kind == WidgetKind::Notes ? c.text : c.items[size_t(c.item)].text;
+    if (w.kind == WidgetKind::Countdown && (c.editPage == 1 || c.editPage == 3) && !(m == WM_CHAR && (wp == 27 || wp == L'\r')))
+        return true; // the time and switch pages have no text: Esc and Enter only
+    std::wstring& text = w.kind == WidgetKind::Notes ? c.text
+                         : w.kind == WidgetKind::Countdown ? (c.editPage == 2 ? c.editNote : c.editName)
+                                                           : c.items[size_t(c.item)].text;
     size_t& at = c.caret;
     at = std::min(at, text.size());
     auto back = [&](size_t i) -> size_t { return i >= 2 && IS_LOW_SURROGATE(text[i - 1]) && IS_HIGH_SURROGATE(text[i - 2]) ? i - 2 : i ? i - 1 : 0; };
@@ -1372,10 +1713,17 @@ bool DesktopWidgets::Key(Widget& w, UINT m, WPARAM wp)
     } else {
         wchar_t ch = wchar_t(wp);
         if (ch == 27) { // Esc
-            EndEdit(w);
+            if (w.kind == WidgetKind::Countdown)
+                FinishCountdown(w, false, false);
+            else
+                EndEdit(w);
             return true;
         }
         if (ch == L'\r') {
+            if (w.kind == WidgetKind::Countdown) { // Enter saves the entry
+                FinishCountdown(w, true, false);
+                return true;
+            }
             if (w.kind == WidgetKind::Notes) {
                 Insert(w, L"\n");
                 changed = true;
@@ -1476,7 +1824,7 @@ void DesktopWidgets::Menu(Widget& w)
 {
     if (!menu)
         return;
-    enum { kSmall = 1, kMedium, kLarge, kRemove, kFolder, kNextPhoto, kClearDone, kAdd, kCities };
+    enum { kSmall = 1, kMedium, kLarge, kRemove, kFolder, kNextPhoto, kClearDone, kAdd, kCities, kStyleList, kStyleLarge };
     std::vector<MenuEntry> entries;
     auto size = [&](int id, WidgetSize s, const wchar_t* label) { entries.push_back({label, id, w.size == s, !WidgetSupports(w.kind, s)}); };
     size(kSmall, WidgetSize::Small, L"小");
@@ -1495,6 +1843,12 @@ void DesktopWidgets::Menu(Widget& w)
     if (w.kind == WidgetKind::Reminders) {
         bool anyDone = std::any_of(w.content.items.begin(), w.content.items.end(), [](const Reminder& r) { return r.done; });
         entries.push_back({L"清除已完成", kClearDone, false, !anyDone});
+        entries.push_back({});
+    }
+    if (w.kind == WidgetKind::Countdown) { // the style: a list, or the nearest day large (small is always large)
+        const bool tiny = w.size == WidgetSize::Small; // (not `small`: a Windows header defines it)
+        entries.push_back({L"列表样式", kStyleList, !tiny && w.content.cdStyle == 0, tiny});
+        entries.push_back({L"大字样式", kStyleLarge, tiny || w.content.cdStyle == 1, tiny});
         entries.push_back({});
     }
     entries.push_back({L"移除小组件", kRemove});
@@ -1525,6 +1879,13 @@ void DesktopWidgets::Menu(Widget& w)
             break;
         case kNextPhoto:
             LoadPhoto(w, true);
+            break;
+        case kStyleList:
+        case kStyleLarge:
+            w.content.cdStyle = cmd == kStyleLarge ? 1 : 0;
+            w.content.scroll = 0;
+            Save();
+            w.surface->Invalidate();
             break;
         case kClearDone:
             std::erase_if(w.content.items, [](const Reminder& r) { return r.done; });
@@ -1577,7 +1938,7 @@ void DesktopWidgets::Paint(Widget& w, Canvas& c)
     if (c.panel && material_ != WidgetMaterial::Color)
         c.Fill(bounds, 0, c.theme.panel);
     GetLocalTime(&world_.now);
-    if (w.kind == WidgetKind::Reminders)
+    if (Listed(w.kind))
         w.content.scroll = std::clamp(w.content.scroll, 0.f, ReminderScrollMax(w.content, w.size));
     PaintWidget(c, w.kind, w.size, material_, w.content, world_, w.hits);
     if ((w.hover || w.resizing) && !w.dragging && Resizable(w.kind)) {

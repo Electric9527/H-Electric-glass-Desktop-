@@ -63,11 +63,12 @@ public sealed partial class MainWindow
         double radius = Math.Min(Math.Clamp(s.CornerRadius, 8, Math.Max(8, s.Height / 2)), CardH / 2);
         double W = NotifyStage.ActualWidth, H = NotifyStage.ActualHeight;
         if (W < CardW + 48 || H < CardH + 60) { W = Math.Max(W, CardW + 48); H = Math.Max(H, CardH + 60); }
-        bool topRight = s.NotifyPlacement == "topRight";
-        // Over the bar, right-aligned with it (the bell's popup); or the screen's top right corner.
+        bool topCenter = s.NotifyPlacement == "topCenter", topRight = topCenter || s.NotifyPlacement == "topRight";
+        // Over the bar, right-aligned with it (the bell's popup); or the screen's top right corner, or its top centre.
         var bar = ShowNotifyBar(W, H);
         double barRight = Math.Min(bar.BarX + bar.BarW, W - 16);
-        var front = new GlassTile(topRight ? W - 24 - CardW : barRight - CardW, topRight ? 24 : bar.BarY - 12 * bar.S - CardH, CardW, CardH, radius);
+        double topX = topCenter ? (W - CardW) / 2 : W - 24 - CardW;
+        var front = new GlassTile(topRight ? topX : barRight - CardW, topRight ? 24 : bar.BarY - 12 * bar.S - CardH, CardW, CardH, radius);
         var back = topRight ? new GlassTile(front.X, front.Y + CardH + CardPeek, CardW, CardH, radius)
             : new GlassTile(front.X + CardInset, front.Y - CardPeek, CardW - 2 * CardInset, CardH, radius);
 
@@ -89,7 +90,7 @@ public sealed partial class MainWindow
         Canvas.SetLeft(backCard, back.X - pad); Canvas.SetTop(backCard, back.Y - pad);
         Canvas.SetLeft(frontCard, front.X - pad); Canvas.SetTop(frontCard, front.Y - pad);
         _notifyEntrancePending |= animate;
-        NotifyCaption.Text = (topRight ? "主屏右上角 · 已有通知向下让位 · " : "跟随任务栏 · ") + $"{s.NotifyTimeout:0} 秒后收起" + (s.NotifyHideBody ? " · 正文已隐藏" : "");
+        NotifyCaption.Text = (topCenter ? "顶部居中 · 从中间弹出 · " : topRight ? "主屏右上角 · 已有通知向下让位 · " : "跟随任务栏 · ") + $"{s.NotifyTimeout:0} 秒后收起" + (s.NotifyHideBody ? " · 正文已隐藏" : "");
 
         // Their glass: rendered over the picture where they rest; each card carries its own piece.
         PostTiles(NotifyCards, W, H, 1, new[] { back, front }, null, f =>
@@ -191,6 +192,14 @@ public sealed partial class MainWindow
         if (!_notifyPreviewRendered)
         {
             _notifyEntrancePending = true;
+            return;
+        }
+        if (_current.NotifyPlacement == "topCenter")
+        {
+            // Top centre: the cards pop out of their middle (the popup spring), as the live cards do.
+            var middle = new Vector2((float)(Canvas.GetLeft(NotifyFrontCard) + NotifyFrontCard.Width / 2),
+                                     (float)(Canvas.GetTop(NotifyFrontCard) + NotifyFrontCard.Height / 2));
+            ReplayNotification(NotifyCards, middle, NotifyBackCard, NotifyFrontCard);
             return;
         }
         if (_current.NotifyPlacement == "topRight")

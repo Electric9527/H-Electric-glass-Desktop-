@@ -657,6 +657,16 @@
                                 <TextBlock Text="托盘" Style="{StaticResource SectionStyle}" />
                                 <local:ToggleTile x:Name="TraySwitch" Title="在任务栏上显示" SwitchName="显示系统托盘" Toggled="OnBarContentToggled" Flat="True" />
                             </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Windows 动画" Style="{StaticResource SectionStyle}" />
+                                <local:ToggleTile x:Name="CalmSwitch" Title="关闭 Windows 自带的窗口动画" SwitchName="关闭 Windows 窗口动画" Toggled="OnCalmToggled" Flat="True"
+                                                  Note="关闭窗口最小化、最大化时 Windows 自己的动画，屏幕上只留 Atrium 的动效；再关掉这个开关就恢复。" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="语音输入" Style="{StaticResource SectionStyle}" />
+                                <local:ToggleTile x:Name="VoiceSwitch" Title="在任务栏上显示" SwitchName="显示语音输入按钮" Toggled="OnBarContentToggled" Flat="True"
+                                                  Note="点麦克风等于按下微信输入法的语音快捷键 Ctrl+Win+Shift。" />
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- The status entry: shown, as a ring or as icons -->
@@ -699,6 +709,7 @@
                                         <local:SegmentTrack>
                                             <RadioButton x:Name="NotifyAtDock" GroupName="notifyplacement" Content="跟随任务栏" Tag="dock" Style="{StaticResource SegmentStyle}" Checked="OnNotifyPlacementChecked" />
                                             <RadioButton x:Name="NotifyAtTopRight" GroupName="notifyplacement" Content="主屏右上角" Tag="topRight" Style="{StaticResource SegmentStyle}" Checked="OnNotifyPlacementChecked" />
+                                            <RadioButton x:Name="NotifyAtTopCenter" GroupName="notifyplacement" Content="顶部居中" Tag="topCenter" Style="{StaticResource SegmentStyle}" Checked="OnNotifyPlacementChecked" />
                                         </local:SegmentTrack>
                                     </StackPanel>
                                     <local:ToggleTile x:Name="HideBodySwitch" Title="隐藏通知正文" SwitchName="隐藏通知正文" Toggled="OnHideBodyToggled" Flat="True"
@@ -713,6 +724,10 @@
                                                   Note="只读微信窗口里的会话列表，有新的未读消息时显示卡片；免打扰的会话不提醒。" />
                                 <local:ToggleTile x:Name="FeishuSwitch" Title="飞书" SwitchName="显示飞书消息" Toggled="OnFeishuToggled" Flat="True"
                                                   Note="只读飞书弹窗里的文字，同时显示为卡片；点击卡片打开飞书。" />
+                                <local:ToggleTile x:Name="QQSwitch" Title="QQ" SwitchName="显示 QQ 消息" Toggled="OnQQToggled" Flat="True"
+                                                  Note="只读 QQ 消息弹窗里的文字；只闪烁任务栏时也提醒一次。已有 Windows 通知时不重复。" />
+                                <local:ToggleTile x:Name="BilibiliSwitch" Title="哔哩哔哩" SwitchName="显示哔哩哔哩消息" Toggled="OnBilibiliToggled" Flat="True"
+                                                  Note="只读哔哩哔哩客户端消息弹窗里的文字；只闪烁任务栏时也提醒一次。" />
                             </StackPanel>
                         </StackPanel>
 
