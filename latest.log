@@ -1,4 +1,4 @@
-glass run 1 | status success | 13e7d92699010cca284f6ecf25e98b4c90a3c2ab
+glass run 2 | status success | 58b1f19c64ce79c974aa62ca61078a2d7d7d7d59
 
 -- Building for: Visual Studio 18 2026
 -- The CXX compiler identification is MSVC 19.51.36260.0
@@ -7,8 +7,8 @@ glass run 1 | status success | 13e7d92699010cca284f6ecf25e98b4c90a3c2ab
 -- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/Enterprise/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe - skipped
 -- Detecting CXX compile features
 -- Detecting CXX compile features - done
--- Configuring done (11.8s)
--- Generating done (0.1s)
+-- Configuring done (12.1s)
+-- Generating done (0.0s)
 -- Build files have been written to: D:/a/H-Electric-glass-Desktop-/H-Electric-glass-Desktop-/native/build/win-x64
 MSBuild version 18.11.1-1.26513.3+940033be3 for .NET Framework
 
@@ -82,6 +82,6 @@ MSBuild version 18.11.1-1.26513.3+940033be3 for .NET Framework
   atrium_core.vcxproj -> D:\a\H-Electric-glass-Desktop-\H-Electric-glass-Desktop-\native\build\win-x64\Release\Atrium.exe
   Building Custom Rule D:/a/H-Electric-glass-Desktop-/H-Electric-glass-Desktop-/native/CMakeLists.txt
   Determining projects to restore...
-  Restored D:\a\H-Electric-glass-Desktop-\H-Electric-glass-Desktop-\settings\Atrium.Settings\Atrium.Settings.csproj (in 19.08 sec).
+  Restored D:\a\H-Electric-glass-Desktop-\H-Electric-glass-Desktop-\settings\Atrium.Settings\Atrium.Settings.csproj (in 20.15 sec).
   Atrium.Settings -> D:\a\H-Electric-glass-Desktop-\H-Electric-glass-Desktop-\settings\Atrium.Settings\bin\Release\net10.0-windows10.0.26100.0\win-x64\Atrium.Settings.dll
   Atrium.Settings -> D:\a\H-Electric-glass-Desktop-\H-Electric-glass-Desktop-\dist\Atrium\Settings\
