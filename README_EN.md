@@ -7,5 +7,5 @@ widgets, with one glass material and spring motion throughout. See [README.md](R
 
 Built on every push to `main` by `.github/workflows/build.yml`; the package is published under Releases.
 
-Based on [Atrium Desktop](https://github.com/wynter-yaxley/atrium-desktop) 2.5.0 (MIT); its copyright notice is kept in
+Based on [Atrium Desktop](https://github.com/wynter-yaxley/atrium-desktop) 2.6.0 (MIT); its copyright notice is kept in
 [LICENSE](LICENSE), as the licence requires.

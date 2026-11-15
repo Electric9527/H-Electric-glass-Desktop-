@@ -38,6 +38,9 @@ namespace atrium {
 
 class Surface;
 
+// Every Atrium window's capture exclusion again (remote-control mode changed). UI thread.
+void RefreshCaptureExclusion();
+
 class Bar : public GlassHost {
 public:
     // debugCapturable: development only. Leaves the bar visible to screen capture
@@ -166,6 +169,8 @@ private:
     void UpdateCover();    // this monitor's top app is maximized or full screen, regardless of focus
     void UpdateAutoHide(); // tucks the bar away or brings it up
     void WatchPointer();   // while covered: the screen's bottom edge brings the bar up, leaving it lets it go
+    void WatchNear();      // the pointer just above the glass: the hover wave leads it (hoverRise)
+    void UpdateNearWatch(); // starts or stops that watch (shown bar, hoverRise on)
     void WatchDisplays();  // summon the shared Dock on another display, after the hover delay
     void WatchDisplaysIfNeeded(); // its timer, in the follow mode with several displays
     void Raise();
@@ -225,6 +230,11 @@ private:
     // the pointer; `tucked_` slides the bar off the screen, after which its
     // windows are hidden (`slidOut_`).
     bool covered_ = false, revealed_ = false, tucked_ = false, slidOut_ = false;
+    // The pointer just above the glass: its place along the bar, and what answers it —
+    // the glass rising (hoverRise and riseNear) and the icons magnifying (magnifyNear).
+    float nearX_ = -1;
+    bool nearRise_ = false, nearMagnify_ = false;
+    bool nearOn_ = false; // the pointer is in the band above the glass (with a little hold)
     ULONGLONG leftAt_ = 0; // when the pointer left a revealed bar
     std::map<HWND, std::pair<int, ULONGLONG>> raises_; // windows we were raised over: count, first time
     HWND lastCover_ = nullptr;

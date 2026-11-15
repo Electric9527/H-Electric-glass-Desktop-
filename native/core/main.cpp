@@ -3,7 +3,9 @@
 // unless the user hides it (setting hideTaskbar, shell/system_chrome.h; D37).
 
 #include "bar.h"
+#include "render/capture.h"
 #include "clock.h"
+#include "localization.h"
 #include "log.h"
 #include "resource.h"
 #include "settings.h"
@@ -193,7 +195,7 @@ void OpenSettings(const wchar_t* page = nullptr)
             return;
     }
     Log(L"settings: Atrium.Settings.exe not found next to %s", dir.c_str());
-    MessageBoxW(nullptr, L"没有找到 Atrium.Settings.exe。请确认安装目录中的 Settings 文件夹完整。", L"Atrium", MB_ICONWARNING);
+    MessageBoxW(nullptr, Tr(L"没有找到 Atrium.Settings.exe。请确认安装目录中的 Settings 文件夹完整。"), L"Atrium", MB_ICONWARNING);
 }
 
 void AddTrayIcon()
@@ -518,17 +520,17 @@ void SetStageManager(bool on)
 
 void ShowMenu(POINT pt)
 {
-    std::vector<MenuEntry> entries = {{L"外观设置…", kCmdSettings}, {}, {L"显示桌面", kCmdDesktop}, {L"任务管理器", kCmdTaskManager}};
+    std::vector<MenuEntry> entries = {{Tr(L"外观设置…"), kCmdSettings}, {}, {Tr(L"显示桌面"), kCmdDesktop}, {Tr(L"任务管理器"), kCmdTaskManager}};
     if (g_app.widgetsOn)
-        entries.push_back({L"添加小组件…", kCmdWidgets});
+        entries.push_back({Tr(L"添加小组件…"), kCmdWidgets});
     // The three modules, each on its own.
     entries.push_back({});
-    entries.push_back({L"任务栏", kCmdToggle, g_app.barOn.value_or(true)});
-    entries.push_back({L"桌面小组件", kCmdWidgetsModule, g_app.widgetsOn});
-    entries.push_back({L"台前调度", kCmdStage, g_app.stage->Enabled()});
+    entries.push_back({Tr(L"任务栏"), kCmdToggle, g_app.barOn.value_or(true)});
+    entries.push_back({Tr(L"桌面小组件"), kCmdWidgetsModule, g_app.widgetsOn});
+    entries.push_back({Tr(L"台前调度"), kCmdStage, g_app.stage->Enabled()});
     entries.push_back({});
     entries.push_back({L"发送测试通知", kCmdTestNotice}); // shows where and how the cards pop up
-    entries.push_back({L"退出 H-Electric-glass", kCmdExit});
+    entries.push_back({Tr(L"退出 H-Electric-glass"), kCmdExit});
     g_app.menu->Open(std::move(entries), pt, MenuPlace::Above, [](int cmd) {
         switch (cmd) {
         case kCmdSettings:
@@ -651,6 +653,8 @@ void EnsureGuard();
 
 void ApplySettings(const Settings& s)
 {
+    if (SetLanguage(s.language) && g_app.widgets)
+        g_app.widgets->ReloadLanguage();
     g_app.desktopDisplay = s.desktopDisplay;
     g_app.displaySettings = s;
     // Popups share the bar's material and corner radius (concentric inside).
@@ -666,6 +670,7 @@ void ApplySettings(const Settings& s)
     g_app.start->SetShowTray(s.startTray);
     g_app.start->SetShowStatus(s.startStatus);
     g_app.start->SetPreferredSize(s.startSize);
+    g_app.start->SetPreferredIcon(s.startIcon);
     g_app.notes->SetRadius(radius);
     g_app.notes->SetOptions(s.notifyTimeout, s.notifyHideBody, s.notifyPlacement);
     // Notification cards belong to the bar (its bell): without it, Windows shows its own banners.
@@ -730,13 +735,20 @@ void ApplySettings(const Settings& s)
     g_app.widgets->SetEnabled(s.widgets);
     g_app.widgetsOn = s.widgets;
     // The Windows key opens the start menu and the bar's apps, which belong to the bar.
-    const bool keyStart = s.bar && s.winKeyStart, keyNumbers = s.bar && s.winNumbers;
+    // Below medium integrity the keys it passes on would not reach the window in front: no hook at all.
+    const bool keyStart = s.bar && s.winKeyStart && !LowIntegrity(), keyNumbers = s.bar && s.winNumbers && !LowIntegrity();
     if (!(keyStart == g_app.winKeyStart && keyNumbers == g_app.winNumbers && bool(g_app.winKey) == (keyStart || keyNumbers))) {
         g_app.winKey.reset();
         if (keyStart || keyNumbers)
             g_app.winKey = std::make_unique<WinKey>(g_app.host, WM_WIN_KEY, keyStart, keyNumbers);
         g_app.winKeyStart = keyStart;
         g_app.winNumbers = keyNumbers;
+    }
+    if (s.remoteVisible != RemoteVisible()) {
+        // The bars rebuild their backdrop on their next frame; the windows show to captures now.
+        SetRemoteVisible(s.remoteVisible);
+        RefreshCaptureExclusion();
+        Log(L"core: remote-control mode %s", s.remoteVisible ? L"on: Atrium shows in every capture, the glass shows the wallpaper" : L"off");
     }
     if (g_app.chrome) {
         // Without the bar, Windows' own taskbar and banners are never hidden.
@@ -929,12 +941,12 @@ void ShowItemMenu(const std::wstring& key, POINT pt)
     }
 
     std::vector<MenuEntry> entries = {{it->name, 0, false, false, true}, {L"", 0}};
-    entries.push_back({it->windows.empty() || !it->multipleWindows ? L"打开" : L"打开新窗口", kCmdNewWindow});
+    entries.push_back({it->windows.empty() || !it->multipleWindows ? Tr(L"打开") : Tr(L"打开新窗口"), kCmdNewWindow});
     size_t command = 0;
     for (auto& [title, rows] : sections) {
         if (rows.empty())
             continue;
-        entries.push_back({title, 0, false, false, true});
+        entries.push_back({Tr(title.c_str()), 0, false, false, true});
         // A jump list can hold hundreds of entries; a menu shows the first few.
         int shown = 0;
         for (JumpItem& item : rows) {
@@ -952,16 +964,16 @@ void ShowItemMenu(const std::wstring& key, POINT pt)
     const bool canRunAs =
         windowsEntries && !appPath.empty() && appPath.find(L"\\WindowsApps\\") == std::wstring::npos;
     if (canRunAs)
-        entries.push_back({L"以管理员身份运行", kCmdRunAs});
+        entries.push_back({Tr(L"以管理员身份运行"), kCmdRunAs});
     std::wstring location = g_app.tasks->FileLocation(key);
     if (!location.empty())
-        entries.push_back({L"打开文件所在的位置", kCmdOpenLocation});
-    entries.push_back({it->pinned ? L"从 H-Electric-glass 取消固定" : L"固定到 H-Electric-glass", int(it->pinned ? kCmdUnpin : kCmdPin)});
+        entries.push_back({Tr(L"打开文件所在的位置"), kCmdOpenLocation});
+    entries.push_back({it->pinned ? Tr(L"从 H-Electric-glass 取消固定") : Tr(L"固定到 H-Electric-glass"), int(it->pinned ? kCmdUnpin : kCmdPin)});
     if (windowsEntries && !appPath.empty())
-        entries.push_back({L"属性", kCmdProperties});
+        entries.push_back({Tr(L"属性"), kCmdProperties});
     if (!it->windows.empty())
-        entries.push_back({it->windows.size() > 1 ? L"关闭所有窗口" : L"关闭窗口", kCmdClose});
-    entries.push_back({L"关闭程序", kCmdTerminate, false, !g_app.tasks->CanTerminate(key)});
+        entries.push_back({it->windows.size() > 1 ? Tr(L"关闭所有窗口") : Tr(L"关闭窗口"), kCmdClose});
+    entries.push_back({Tr(L"关闭程序"), kCmdTerminate, false, !g_app.tasks->CanTerminate(key)});
     int pinIndex = it->pinIndex;
     auto windows = it->windows;
     std::wstring name = it->name;
@@ -993,10 +1005,10 @@ void ShowItemMenu(const std::wstring& key, POINT pt)
             break;
         case kCmdTerminate: {
             // Ending the processes loses what is not saved: asked once more, in place.
-            std::vector<MenuEntry> confirm = {{L"强制关闭“" + name + L"”？未保存的内容会丢失", 0, false, false, true},
+            std::vector<MenuEntry> confirm = {{TrFormat(L"强制关闭“%s”？未保存的内容会丢失", name.c_str()), 0, false, false, true},
                                               {L"", 0},
-                                              {L"强制关闭", kCmdTerminateConfirm},
-                                              {L"取消", 0}};
+                                              {Tr(L"强制关闭"), kCmdTerminateConfirm},
+                                              {Tr(L"取消"), 0}};
             g_app.menu->Open(std::move(confirm), pt, MenuPlace::AboveCentered, [key](int answer) {
                 if (answer == kCmdTerminateConfirm)
                     g_app.tasks->Terminate(key);
@@ -1359,7 +1371,7 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
             if (const std::wstring zip = PendingDropUpdate(ExeDir()); !zip.empty()) {
                 KillTimer(h, kDropTimer);
                 if (StartDropUpdate(ExeDir(), zip))
-                    DestroyWindow(g_app.host); // as "退出 Atrium": the script waits for this, installs and starts it again
+                    DestroyWindow(g_app.host); // as "退出 H-Electric-glass": the script waits for this, installs and starts it again
                 else
                     SetTimer(h, kDropTimer, 3000, nullptr);
             }
@@ -1423,7 +1435,7 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
         }
         break;
     case WM_ATRIUM_ADD_WIDGET:
-        return w <= WPARAM(WidgetKind::Countdown) && l >= 0 && l <= LPARAM(WidgetSize::Large) &&
+        return w <= WPARAM(WidgetKind::Network) && l >= 0 && l <= LPARAM(WidgetSize::Large) &&
                g_app.widgetsOn && g_app.widgets->Add(WidgetKind(w), WidgetSize(l)) ? 1 : 0;
     case WM_ATRIUM_SETTINGS:
         ApplySettings(g_app.server->Current());
@@ -1475,6 +1487,7 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l)
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
 {
+    SetLanguage(L"auto"); // before any message; the saved choice follows with LoadSettings
     // Never in the install folder (started from it in Explorer, or by the updater): the apps started
     // from the bar would inherit it, and a folder some process is in cannot be replaced by an update.
     if (PWSTR profile = nullptr; SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &profile))) {
@@ -1488,7 +1501,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
             g_readyEvent = startupArguments[i + 1];
     LocalFree(startupArguments);
     if (wcscmp(cmdLine, L"--uninstall") == 0) {
-        if (MessageBoxW(nullptr, L"卸载 H-Electric-glass？个人设置和桌面小组件布局将会保留。", L"H-Electric-glass Desktop",
+        if (MessageBoxW(nullptr, Tr(L"卸载 H-Electric-glass？个人设置和桌面小组件布局将会保留。"), L"H-Electric-glass Desktop",
                         MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2 | MB_SETFOREGROUND) != IDYES)
             return 0;
         wchar_t system[MAX_PATH]{};
@@ -1529,17 +1542,46 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     if (!mutex) return 1;
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         // Already running: launching it again opens the settings instead.
-        if (HWND other = FindWindowW(kHostClass, nullptr)) {
-            if (SameCoreExecutable(other)) PostMessageW(other, WM_OPEN_SETTINGS, 0, 0);
-            else MessageBoxW(nullptr, L"另一位置的 H-Electric-glass 正在运行。请先退出该实例，再启动本目录中的版本。", L"H-Electric-glass Desktop", MB_OK | MB_ICONINFORMATION);
+        HWND other = FindWindowW(kHostClass, nullptr);
+        if (other && SameCoreExecutable(other)) {
+            PostMessageW(other, WM_OPEN_SETTINGS, 0, 0);
+            CloseHandle(mutex);
+            return 0;
+        }
+        // Another copy (an older version unzipped elsewhere, #44): this one may take over, and
+        // the logon entry and the registration move here as it starts.
+        bool replaced = false;
+        if (other && MessageBoxW(nullptr, Tr(L"另一位置的 H-Electric-glass 正在运行。要退出它，改用本目录中的版本吗？"), L"H-Electric-glass Desktop",
+                                 MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND) == IDYES) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(other, &pid);
+            if (HANDLE process = OpenProcess(SYNCHRONIZE, FALSE, pid)) {
+                PostMessageW(other, WM_CLOSE, 0, 0);
+                replaced = WaitForSingleObject(process, 15000) == WAIT_OBJECT_0;
+                CloseHandle(process);
+            }
+            // And its guard, which puts Windows' taskbar back as that copy ends.
+            if (HANDLE guard = OpenMutexW(SYNCHRONIZE, FALSE, kGuardMutex)) {
+                DWORD done = WaitForSingleObject(guard, 5000);
+                if (done == WAIT_OBJECT_0 || done == WAIT_ABANDONED)
+                    ReleaseMutex(guard);
+                CloseHandle(guard);
+            }
         }
         CloseHandle(mutex);
-        return 0;
+        if (!replaced)
+            return 0;
+        mutex = CreateMutexW(nullptr, TRUE, kInstanceMutex);
+        if (!mutex || GetLastError() == ERROR_ALREADY_EXISTS)
+            return 0;
+        Log(L"core: took over from the copy at another location");
     }
     winrt::init_apartment(winrt::apartment_type::single_threaded);
     SetCurrentProcessExplicitAppUserModelID(kAppId);
     g_app.instance = instance;
     Log(L"core: starting");
+    if (LowIntegrity())
+        Log(L"core: running at low integrity (Atrium.exe has a Low label?): settings cannot be saved, the Windows key is left alone");
     const bool registeredHere = IsRegisteredApplication(ExeDir());
     RegisterApplication(ExeDir());
     // A crash must not leave the user without a taskbar.
@@ -1561,6 +1603,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     ChangeWindowMessageFilterEx(g_app.host, g_app.taskbarCreated, MSGFLT_ALLOW, nullptr);
 
     Settings settings = LoadSettings();
+    SetLanguage(settings.language);
     // Also on every start while it is on: an update from a version that started from the
     // Run key moves to the logon task, unless that entry was turned off in Task Manager.
     // Off this thread: Task Scheduler is slow while the session is starting.
@@ -1639,6 +1682,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     g_app.start->onStatusRequest = UpdateStatus;
     g_app.calendar = std::make_unique<CalendarPanel>(instance);
     g_app.widgets = std::make_unique<DesktopWidgets>(instance);
+    g_app.widgets->ReloadLanguage(); // cached weather labels follow the saved language
     g_app.stage = std::make_unique<StageManager>(instance, *g_app.tasks);
     g_app.control->onStage = SetStageManager;
     g_app.widgets->onStatusRequest = UpdateStatus;
@@ -1678,10 +1722,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR cmdLine, int)
     ApplySettings(settings);
     g_app.bar->SetItems(g_app.tasks->Snapshot());
     g_app.server = std::make_unique<SettingsServer>(g_app.host, settings);
-    // The start menu's size is a setting (the settings show it); kept in start.json before.
+    // The start menu's size and its icons' size are settings (the settings show them);
+    // kept in start.json before.
     g_app.start->onSize = [](const std::wstring& name) { g_app.server->Modify([&](Settings& s) { s.startSize = name; }); };
+    g_app.start->onIcon = [](const std::wstring& name) { g_app.server->Modify([&](Settings& s) { s.startIcon = name; }); };
     if (settings.startSize.empty())
         g_app.start->onSize(g_app.start->SizeName());
+    if (settings.startIcon.empty())
+        g_app.start->onIcon(g_app.start->IconSizeName());
     // The start menu shows the Windows start menu's pins; from there an app
     // can be pinned to the bar (the bar's own pins are separate).
     g_app.start->onPin = [](const PinnedApp& pin) {

@@ -1,4 +1,6 @@
 #include "bar.h"
+
+#include "localization.h"
 #include "render/continuous_corners.h"
 
 #include "clock.h"
@@ -61,6 +63,9 @@ constexpr UINT_PTR kSlideTimer = 4;   // the slide out is over: hide the windows
 constexpr UINT_PTR kPointerTimer = 5; // while covered: watch the pointer
 constexpr UINT_PTR kDisplayTimer = 6; // the shared Dock's cross-display gesture
 constexpr UINT_PTR kCoverTimer = 7;   // windows moved on this monitor: look at what covers it, once for a burst
+constexpr UINT_PTR kNearTimer = 8;    // the pointer coming down onto the bar (hoverRise)
+constexpr UINT kNearMs = 16;
+constexpr float kNearSideDip = 16;    // past the glass's ends, so the approach from the side counts too
 constexpr UINT kCoverMs = 50;
 constexpr UINT kPointerMs = 50;
 constexpr DWORD kLeaveMs = 500;       // a revealed bar goes down this long after the pointer left it
@@ -183,10 +188,28 @@ float GlassLuma(const Settings& s, float backdrop)
     return backdrop * (1 - tm) + tintLuma * tm;
 }
 
-void ClockStrings(std::wstring& time, std::wstring& date)
+// The bar's time and date, in the system's own formats. `seconds` asks for the
+// long time format (which carries seconds); a locale whose long time has none
+// gets them added after the minutes, so the switch always shows a difference.
+void ClockStrings(std::wstring& time, std::wstring& date, bool seconds)
 {
     wchar_t t[64] = {}, d[64] = {};
-    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, nullptr, nullptr, t, 64);
+    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, seconds ? 0 : TIME_NOSECONDS, nullptr, nullptr, t, 64);
+    if (seconds) {
+        wchar_t plain[64] = {};
+        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, nullptr, nullptr, plain, 64);
+        if (std::wstring(t) == plain) {
+            wchar_t pattern[64] = {};
+            if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, pattern, ARRAYSIZE(pattern)) > 0) {
+                std::wstring withSeconds = pattern;
+                const size_t minute = withSeconds.rfind(L'm');
+                if (minute != std::wstring::npos) {
+                    withSeconds.insert(minute + 1, L":ss");
+                    GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, 0, nullptr, withSeconds.c_str(), t, ARRAYSIZE(t));
+                }
+            }
+        }
+    }
     GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, nullptr, nullptr, d, 64, nullptr);
     time = t;
     date = d;
@@ -219,6 +242,8 @@ void RegisterClasses(HINSTANCE instance)
 }
 
 } // namespace
+
+void RefreshCaptureExclusion() { ApplyCapturePolicies(); }
 
 // OLE drop target on the input window: files dragged over an app bring it to
 // the front after a moment; dropping opens them with that app.
@@ -529,11 +554,16 @@ LRESULT Bar::OnInput(HWND h, UINT m, WPARAM w, LPARAM l)
             if (tucked_ && !slidOut_) {
                 slidOut_ = true;
                 Relayout(); // hides the windows; the render thread rests
+                WatchNear(); // nothing to answer now: let it fall back
             }
             return 0;
         }
         if (w == kPointerTimer) {
             WatchPointer();
+            return 0;
+        }
+        if (w == kNearTimer) {
+            WatchNear();
             return 0;
         }
         break;
@@ -763,6 +793,7 @@ void Bar::Apply(const Settings& s)
     WatchDisplaysIfNeeded();
     Relayout();
     UpdateCover(); // the hide mode may have changed
+    UpdateNearWatch(); // hoverRise may have been turned on or off
 }
 
 // Watching the pointer for the follow mode only with another display to follow it to.
@@ -856,6 +887,7 @@ void Bar::SetVisible(bool visible)
 {
     visible_ = visible;
     Relayout();
+    UpdateNearWatch();
 }
 
 void Bar::Relayout()
@@ -900,7 +932,7 @@ void Bar::Relayout()
     int clockW = 0;
     if (showClock) {
         std::wstring time, date;
-        ClockStrings(time, date);
+        ClockStrings(time, date, st.showClockSeconds);
         float w = std::max(MeasureUiText(dwrite_.get(), WidestDigits(time), timePx, DWRITE_FONT_WEIGHT_SEMI_BOLD),
                            MeasureUiText(dwrite_.get(), WidestDigits(date), datePx, DWRITE_FONT_WEIGHT_NORMAL));
         clockW = int(std::ceil(w)) + Px(22, s);
@@ -1016,6 +1048,11 @@ void Bar::Relayout()
     // Keep the pointer and the ripple; only the geometry changes. The pointer
     // moves with the window if it was rebuilt at another x.
     scene.pointerX = scene_.pointerX < 0 ? -1 : scene_.pointerX + float(window_.left - x);
+    // The pointer just above the bar: the glass and/or the icons answer it (hoverRise,
+    // riseNear, magnifyNear).
+    scene.nearX = nearX_ < 0 ? -1 : nearX_ + float(window_.left - x);
+    scene.nearRise = nearRise_;
+    scene.nearMagnify = nearMagnify_;
     scene.rippleX = scene_.rippleX + float(window_.left - x);
     scene.rippleY = scene_.rippleY + float(window_.top - y);
     scene.rippleMs = scene_.rippleMs;
@@ -1394,6 +1431,62 @@ void Bar::WatchPointer()
     }
 }
 
+// The pointer just above a visible bar: the hover wave answers it before the pointer
+// arrives — the glass rises to it (hoverRise and riseNear) and/or the icons magnify
+// (magnifyNear), each on its own. On the bar itself the mouse moves drive the wave and
+// this leaves it alone.
+void Bar::WatchNear()
+{
+    const float s = scale_;
+    const D2D1_RECT_F g = scene_.bar;
+    const float side = kNearSideDip * s;
+    // The distances are settings (nearEnter / nearLeave, DIP); the hold is never closer
+    // than the start, so a pointer resting on the edge does not flicker in and out.
+    const float enter = std::max(2.f, float(settings_.nearEnter)), leave = std::max(enter, float(settings_.nearLeave));
+    const float reach = (nearOn_ ? leave : enter) * s;
+    const bool wantRise = settings_.hoverRise && settings_.riseNear;
+    const bool wantMagnify = settings_.magnifyNear;
+    float leadX = -1;
+    if (visible_ && !tucked_ && !slidOut_ && settings_.magnify > 1.001f && (wantRise || wantMagnify)) {
+        POINT p{};
+        GetCursorPos(&p);
+        ScreenToClient(input_, &p);
+        const float x = float(p.x), y = float(p.y);
+        if (y < g.top && y >= g.top - reach && x >= g.left - side && x <= g.right + side)
+            leadX = std::clamp(x, g.left, g.right);
+    }
+    nearOn_ = leadX >= 0;
+    const bool rise = nearOn_ && wantRise, magnify = nearOn_ && wantMagnify;
+    if (std::fabs(leadX - nearX_) < 1.f && rise == nearRise_ && magnify == nearMagnify_)
+        return;
+    nearX_ = leadX;
+    nearRise_ = rise;
+    nearMagnify_ = magnify;
+    scene_.nearX = nearX_;
+    scene_.nearRise = nearRise_;
+    scene_.nearMagnify = nearMagnify_;
+    Publish();
+}
+
+// Watched while the bar is on screen and something answers the pointer above it; a tick
+// steps aside for a tucked bar by itself.
+void Bar::UpdateNearWatch()
+{
+    const bool wanted = settings_.magnify > 1.001f && ((settings_.hoverRise && settings_.riseNear) || settings_.magnifyNear);
+    if (visible_ && wanted)
+        SetTimer(input_, kNearTimer, kNearMs, nullptr);
+    else {
+        KillTimer(input_, kNearTimer);
+        if (nearX_ >= 0 || nearRise_ || nearMagnify_) {
+            nearX_ = -1;
+            nearRise_ = nearMagnify_ = nearOn_ = false;
+            scene_.nearX = -1;
+            scene_.nearRise = scene_.nearMagnify = false;
+            Publish();
+        }
+    }
+}
+
 void Bar::Raise()
 {
     SetWindowPos(visual_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
@@ -1559,26 +1652,31 @@ RECT Bar::BarRect() const
 std::wstring Bar::TooltipText(const std::wstring& key) const
 {
     if (key == kStartKey)
-        return L"\u5F00\u59CB"; // 开始
+        return Tr(L"开始");
     if (key == kNotifyKey)
-        return unread_ ? std::to_wstring(unread_) + L" \u6761\u672A\u8BFB\u901A\u77E5" : L"\u901A\u77E5"; // N 条未读通知 / 通知
+        return unread_ ? TrFormat(L"%d 条未读通知", int(unread_)) : Tr(L"通知");
     if (key == kTrayKey)
-        return L"\u6258\u76D8"; // 托盘
+        return Tr(L"托盘");
     if (key == kVoiceKey)
-        return L"\u8BED\u97F3\u8F93\u5165"; // 语音输入
+        return Tr(L"语音输入");
     if (key == kStatusKey) {
         const SystemStatus& st = status_;
-        std::wstring net = !st.connected ? L"\u672A\u8FDE\u63A5\u7F51\u7EDC" // 未连接网络
-                                         : (st.wifi ? L"Wi-Fi " : L"") + st.network + (st.wifi ? L" \u00B7 \u4FE1\u53F7 " + std::to_wstring(st.signal) + L"%" : L"");
+        std::wstring net;
+        if (!st.connected)
+            net = Tr(L"未连接网络");
+        else if (st.wifi)
+            net = TrFormat(L"Wi-Fi %s · 信号 %d%%", st.network.c_str(), st.signal);
+        else
+            net = st.network;
         std::wstring more;
         if (st.battery)
-            more = L"\n\u7535\u6C60 " + std::to_wstring(st.batteryPercent) + L"%" + (st.charging ? L" \u00B7 \u5DF2\u63A5\u901A\u7535\u6E90" : L""); // 电池 N% · 已接通电源
+            more = st.charging ? TrFormat(L"\n电池 %d%% · 已接通电源", st.batteryPercent) : TrFormat(L"\n电池 %d%%", st.batteryPercent);
         if (st.audio)
-            more += L"\n\u97F3\u91CF " + (st.muted ? std::wstring(L"\u9759\u97F3") : std::to_wstring(st.volume) + L"%"); // 音量 N% / 静音
+            more += st.muted ? Tr(L"\n静音") : TrFormat(L"\n音量 %d%%", st.volume);
         return net + more;
     }
     if (key == kMoreKey)
-        return L"\u53E6\u5916 " + std::to_wstring(hidden_.size()) + L" \u4E2A\u5E94\u7528"; // 另外 N 个应用
+        return TrFormat(L"另外 %d 个应用", int(hidden_.size()));
     if (key == kClockKey) {
         wchar_t buf[128] = {};
         GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_LONGDATE, nullptr, nullptr, buf, 128, nullptr);
@@ -1586,7 +1684,7 @@ std::wstring Bar::TooltipText(const std::wstring& key) const
     }
     for (const auto& t : items_)
         if (t.key == key)
-            return t.windows.size() > 1 ? t.name + L" \u00B7 " + std::to_wstring(t.windows.size()) + L" \u4E2A\u7A97\u53E3" : t.name;
+            return t.windows.size() > 1 ? TrFormat(L"%s · %d 个窗口", t.name.c_str(), int(t.windows.size())) : t.name;
     return {};
 }
 
@@ -1622,16 +1720,18 @@ void Bar::ShowTooltip()
     const float maxTextW = std::min(320.f, float(mi.rcWork.right - mi.rcWork.left - 2 * margin) / scale_ - 2 * kTooltipPadX);
     winrt::com_ptr<IDWriteTextFormat> format;
     winrt::com_ptr<IDWriteTextLayout> layout;
-    if (FAILED(UiTextFormat(dwrite_.get(), kTooltipFont, DWRITE_FONT_WEIGHT_MEDIUM, format.put())))
+    // UiTextFormat/UiTextLayout take physical pixels: the tooltip's size is
+    // DIP, so measure at the monitor's scale and divide the metrics back.
+    if (FAILED(UiTextFormat(dwrite_.get(), kTooltipFont * scale_, DWRITE_FONT_WEIGHT_MEDIUM, format.put())))
         return;
     format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    if (FAILED(UiTextLayout(dwrite_.get(), text, format.get(), maxTextW, 1000, layout.put())))
+    if (FAILED(UiTextLayout(dwrite_.get(), text, format.get(), maxTextW * scale_, 1000 * scale_, layout.put())))
         return;
     DWRITE_TEXT_METRICS metrics{};
     layout->GetMetrics(&metrics);
     tooltipText_ = std::move(text);
-    tooltipSize_ = D2D1::SizeF(std::min(maxTextW, std::ceil(metrics.widthIncludingTrailingWhitespace)) + 2 * kTooltipPadX,
-                              std::max(kTooltipMinH, std::ceil(metrics.height) + 2 * kTooltipPadY));
+    tooltipSize_ = D2D1::SizeF(std::min(maxTextW, std::ceil(metrics.widthIncludingTrailingWhitespace / scale_)) + 2 * kTooltipPadX,
+                              std::max(kTooltipMinH, std::ceil(metrics.height / scale_) + 2 * kTooltipPadY));
     int w = Px(tooltipSize_.width, scale_), h = Px(tooltipSize_.height, scale_);
     int cx = window_.left + (hit->rect.left + hit->rect.right) / 2;
     // Above the magnified icons when they grow.
@@ -1748,7 +1848,12 @@ bool Bar::RenderSession()
     // itself (so screenshots may show them); else Windows.Graphics.Capture
     // with Atrium kept out of every capture.
     std::unique_ptr<BackdropSource> capture;
-    if (!duplicationFailed_) {
+    // Remote-control mode: the wallpaper, so that the screen's capture may show Atrium.
+    const bool remote = RemoteVisible();
+    if (remote) {
+        capture = std::make_unique<WallpaperCapture>(gpu, snap.hmonitor, frame_);
+        Log(L"render: remote-control mode, the glass shows the wallpaper");
+    } else if (!duplicationFailed_) {
         HRESULT why = S_OK;
         bool elsewhere = false;
         for (int tries = 0;; ++tries) {
@@ -1881,7 +1986,10 @@ bool Bar::RenderSession()
             extra.bounds = info.rcMonitor;
             HRESULT why = S_OK;
             bool elsewhere = false;
-            extra.source = DuplicationCapture::Create(gpu, monitor, frame_, why, elsewhere);
+            if (remote)
+                extra.source = std::make_unique<WallpaperCapture>(gpu, monitor, frame_);
+            else
+                extra.source = DuplicationCapture::Create(gpu, monitor, frame_, why, elsewhere);
             if (!extra.source) {
                 ShowOwnWindowsToCapture(false);
                 mayShowInCapture = false;
@@ -2141,7 +2249,15 @@ bool Bar::RenderSession()
                 ++tick;
             }
         } else {
-            w = WaitForMultipleObjects(3, handles, FALSE, paced ? 6 : readback ? 3 : 1000);
+            // Idle, a clock with seconds wakes just past the next whole second: a plain second's
+            // timeout drifts by the work of each pass, and every so often a second is skipped.
+            DWORD idle = 1000;
+            if (snap.settings.showClock && snap.settings.showClockSeconds) {
+                SYSTEMTIME t{};
+                GetLocalTime(&t);
+                idle = DWORD(1000 - t.wMilliseconds) + 16;
+            }
+            w = WaitForMultipleObjects(3, handles, FALSE, paced ? 6 : readback ? 3 : idle);
             ++tick;
         }
         if (w == WAIT_OBJECT_0)
@@ -2179,7 +2295,7 @@ bool Bar::RenderSession()
         ID3D11Texture2D* frame = capture->Acquire();
         if (capture->Lost())
             return true; // a new source (display mode change, secure desktop)
-        if (snap.hmonitor != captureMonitor || snap.displayGeneration != captureGeneration)
+        if (snap.hmonitor != captureMonitor || snap.displayGeneration != captureGeneration || RemoteVisible() != remote)
             return true; // selected display or its capture source changed
         if (!snap.visible) {
             // Retire the bar's reads even while hidden. Otherwise its last pending
@@ -2288,7 +2404,7 @@ bool Bar::RenderSession()
 
         std::wstring time, date;
         if (snap.settings.showClock)
-            ClockStrings(time, date);
+            ClockStrings(time, date, snap.settings.showClockSeconds);
         std::wstring textKey = time + L"|" + date;
         const double nowMs = ClockMs();
         animating = painter.Animate(snap.scene, nowMs);

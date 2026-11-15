@@ -32,6 +32,8 @@ public:
     // The bar's monitor: the widgets live in its work area, where its capture gives them glass.
     void SetMonitor(HMONITOR monitor, bool refresh = false);
     void SetMaterial(WidgetMaterial material);
+    // A language change: the weather's labels are fetched, so fetch them again and repaint.
+    void ReloadLanguage();
     // Adds a widget in the first free place; false when there is no room.
     bool Add(WidgetKind kind, WidgetSize size);
     // The same by name ("clock", "medium"; the settings app's gallery).
@@ -115,6 +117,7 @@ private:
     WidgetMaterial material_ = WidgetMaterial::Glass;
     std::unique_ptr<WeatherSource> weather_;
     std::unique_ptr<BluetoothBatteries> bluetooth_;
+    std::unique_ptr<NetworkMonitor> network_;
     ChineseCalendar lunar_;
     int lastMinute_ = -1;
     uint64_t cpuIdle_ = 0, cpuTotal_ = 0; // the last GetSystemTimes

@@ -131,7 +131,8 @@ public sealed partial class MainWindow
     private void OnEngage(string title, bool on)
     {
         _engaged = on ? title : (_engaged == title ? null : _engaged);
-        bool edge = _engaged is "折射强度" or "折射边缘宽度" or "色散" or "高光" or "圆角" or "阴影";
+        bool edge = _engaged == Loc.T("折射强度") || _engaged == Loc.T("折射边缘宽度") || _engaged == Loc.T("色散") ||
+                    _engaged == Loc.T("高光") || _engaged == Loc.T("圆角") || _engaged == Loc.T("阴影");
         Loupe.BorderBrush = edge ? Tokens.Brush("AccentBrush") : new SolidColorBrush(Color.FromArgb(179, 255, 255, 255));
         UpdateHero();
     }
@@ -152,7 +153,7 @@ public sealed partial class MainWindow
         double P = Math.Max(I + 4, Math.Min(H - 12, Math.Round(I * 1.55)));
         double v = Math.Floor((H - P) / 2), pad = v + 4, gap = Math.Max(4, Math.Round(I * 0.18));
         double timePx = H * 0.25, datePx = H * 0.19, sepGap = 8;
-        double clockW = s.ShowClock ? Math.Max(timePx * 2.75, datePx * 5.7) + 22 : 0;
+        double clockW = s.ShowClock ? Math.Max(timePx * (s.ShowClockSeconds ? 4.8 : 2.75), datePx * 5.7) + 22 : 0;
         int rightCount = (s.ShowTray ? 1 : 0) + (s.ShowStatus ? 1 : 0) + (s.ShowNotifications ? 1 : 0) + (s.ShowClock ? 1 : 0);
         double statusExtra = s.StatusStyle == "icons" ? Math.Round(I * 1.3) : 0; // three icons: about an icon wider
         double rightW = (rightCount - (s.ShowClock ? 1 : 0)) * P + (s.ShowStatus ? statusExtra : 0) + clockW + Math.Max(0, rightCount - 1) * gap;
@@ -184,8 +185,9 @@ public sealed partial class MainWindow
         double by = Math.Max(10, viewH - s.Margin * S - H * S);
         double X(double left) => left < 0 ? -1 : bx + left * S;
 
-        // As if the pointer rested on the second app.
-        double k = wave && mag > 1.001 ? mag - 1 : 0, range = pitch * 2.3 * S;
+        // As if the pointer rested on the bar, just above the second app: the icons take the wave
+        // with 栏上方提前放大图标 (magnifyNear); the glass rises on its own switch below.
+        double k = wave && mag > 1.001 && s.MagnifyNear ? mag - 1 : 0, range = pitch * 2.3 * S;
         double centre = n > 1 ? bx + (appsLeft + pitch) * S + P * S / 2 : bx + (pad + P / 2) * S;
         double Map(double u)
         {
@@ -235,7 +237,7 @@ public sealed partial class MainWindow
             if (_loupeFace.Icons[i].DataContext != vm) _loupeFace.Icons[i].DataContext = vm;
         }
         var clock = DateTime.Now;
-        string time = clock.ToString("H:mm"), date = clock.ToString("yyyy/M/d");
+        string time = clock.ToString(_current.ShowClockSeconds ? "H:mm:ss" : "H:mm"), date = clock.ToString("yyyy/M/d");
         _face.SetClock(time, date);
         var status = StatusLook.Current();
         _face.Layout(L, DarkInk(), L.N, running, _current.Magnify, 1, 0, 0, status);
@@ -278,50 +280,56 @@ public sealed partial class MainWindow
         }
 
         double barBottom = L.BarY + L.BarH, barRight = L.BarX + L.BarW;
-        switch (_engaged)
+        if (_engaged == Loc.T("高度"))
         {
-            case "高度":
+            double x = L.BarX - 14;
+            Line(x, L.BarY, x, barBottom); Line(x - 4, L.BarY, x + 4, L.BarY); Line(x - 4, barBottom, x + 4, barBottom);
+            Chip($"{Math.Round(_current.Height)} px", x - 30, L.BarY + L.BarH / 2 - 10);
+        }
+        else if (_engaged == Loc.T("底部间距"))
+        {
+            double x = L.BarX + L.BarW * 0.5;
+            Line(x, barBottom, x, _heroH); Line(x - 4, barBottom, x + 4, barBottom); Line(x - 4, _heroH - 1, x + 4, _heroH - 1);
+            Chip($"{Math.Round(_current.Margin)} px", x + 34, (barBottom + _heroH) / 2 - 10);
+        }
+        else if (_engaged == Loc.T("最大宽度"))
+        {
+            double y = L.BarY - 12, x0 = (_heroW - L.MaxW) / 2, x1 = x0 + L.MaxW;
+            Line(x0, y, x1, y, dashed: true); Line(x0, y - 4, x0, y + 4); Line(x1, y - 4, x1, y + 4);
+            Chip($"{Math.Round(_current.Width)} px", _heroW / 2, y - 24);
+        }
+        else if (_engaged == Loc.T("进入距离") || _engaged == Loc.T("离开距离"))
+        {
+            // The band above the bar that answers a pointer coming down onto it (栏上方提前拱起 /
+            // 提前放大图标): a dashed line at the enter distance, and the leave one while it is set.
+            double x0 = L.BarX + 8, x1 = Math.Max(x0 + 1, barRight - 8);
+            double enterY = L.BarY - _current.NearEnter * L.S, leaveY = L.BarY - _current.NearLeave * L.S;
+            Line(x0, enterY, x1, enterY, dashed: true);
+            Chip(Loc.F("进入 {0} px", Math.Round(_current.NearEnter)), x0 + 44, enterY - 22);
+            if (_engaged == Loc.T("离开距离"))
             {
-                double x = L.BarX - 14;
-                Line(x, L.BarY, x, barBottom); Line(x - 4, L.BarY, x + 4, L.BarY); Line(x - 4, barBottom, x + 4, barBottom);
-                Chip($"{Math.Round(_current.Height)} px", x - 30, L.BarY + L.BarH / 2 - 10);
-                break;
+                Line(x0, leaveY, x1, leaveY, dashed: true);
+                Chip(Loc.F("离开 {0} px", Math.Round(_current.NearLeave)), x0 + 44, leaveY - 22);
             }
-            case "底部间距":
-            {
-                double x = L.BarX + L.BarW * 0.5;
-                Line(x, barBottom, x, _heroH); Line(x - 4, barBottom, x + 4, barBottom); Line(x - 4, _heroH - 1, x + 4, _heroH - 1);
-                Chip($"{Math.Round(_current.Margin)} px", x + 34, (barBottom + _heroH) / 2 - 10);
-                break;
-            }
-            case "最大宽度":
-            {
-                double y = L.BarY - 12, x0 = (_heroW - L.MaxW) / 2, x1 = x0 + L.MaxW;
-                Line(x0, y, x1, y, dashed: true); Line(x0, y - 4, x0, y + 4); Line(x1, y - 4, x1, y + 4);
-                Chip($"{Math.Round(_current.Width)} px", _heroW / 2, y - 24);
-                break;
-            }
-            case "圆角":
-            {
-                // The circle the corner is an arc of, and its radius.
-                double r = Math.Max(L.Radius, 2);
-                var circle = new Ellipse { Width = 2 * r, Height = 2 * r, Stroke = white, StrokeThickness = 1.25, StrokeDashArray = new DoubleCollection { 3, 3 }, IsHitTestVisible = false };
-                Canvas.SetLeft(circle, L.BarX);
-                Canvas.SetTop(circle, L.BarY);
-                _annotations.Add(circle);
-                HeroCanvas.Children.Add(circle);
-                Line(L.BarX + r, L.BarY + r, L.BarX + r - r * 0.7071, L.BarY + r - r * 0.7071);
-                Chip($"R {Math.Round(Math.Min(_current.CornerRadius, _current.Height / 2))} px", L.BarX + r, L.BarY - 30);
-                break;
-            }
-            case "图标大小":
-            {
-                if (L.N == 0) break;
-                double x = L.PlateX(0) + L.P / 2 - L.Icon / 2 - 4, y0 = L.PlateY + L.P / 2 - L.Icon / 2, y1 = y0 + L.Icon;
-                Line(x, y0, x, y1); Line(x - 3, y0, x + 3, y0); Line(x - 3, y1, x + 3, y1);
-                Chip($"{Math.Round(_current.IconSize)} px", L.PlateX(0) + L.P / 2, L.BarY - 28);
-                break;
-            }
+        }
+        else if (_engaged == Loc.T("圆角"))
+        {
+            // The circle the corner is an arc of, and its radius.
+            double r = Math.Max(L.Radius, 2);
+            var circle = new Ellipse { Width = 2 * r, Height = 2 * r, Stroke = white, StrokeThickness = 1.25, StrokeDashArray = new DoubleCollection { 3, 3 }, IsHitTestVisible = false };
+            Canvas.SetLeft(circle, L.BarX);
+            Canvas.SetTop(circle, L.BarY);
+            _annotations.Add(circle);
+            HeroCanvas.Children.Add(circle);
+            Line(L.BarX + r, L.BarY + r, L.BarX + r - r * 0.7071, L.BarY + r - r * 0.7071);
+            Chip($"R {Math.Round(Math.Min(_current.CornerRadius, _current.Height / 2))} px", L.BarX + r, L.BarY - 30);
+        }
+        else if (_engaged == Loc.T("图标大小"))
+        {
+            if (L.N == 0) return;
+            double x = L.PlateX(0) + L.P / 2 - L.Icon / 2 - 4, y0 = L.PlateY + L.P / 2 - L.Icon / 2, y1 = y0 + L.Icon;
+            Line(x, y0, x, y1); Line(x - 3, y0, x + 3, y0); Line(x - 3, y1, x + 3, y1);
+            Chip($"{Math.Round(_current.IconSize)} px", L.PlateX(0) + L.P / 2, L.BarY - 28);
         }
     }
 
@@ -342,12 +350,15 @@ public sealed partial class MainWindow
             _heroPhotoGen = j.PhotoGeneration;
             Interlocked.Exchange(ref _photoPending, _mainBg);
         }
-        // Keep the specimen and loupe in step with the native hover-rise switch.
+        // Keep the specimen and loupe in step with the two early-answer switches: the glass
+        // rises with 跟随鼠标拱起 + 栏上方提前拱起 (hoverRise + riseNear), whether or not the
+        // icons take the wave with it.
+        double waveRise = j.S.HoverRise && j.S.RiseNear ? Math.Clamp(j.S.Magnify, 1, 2) - 1 : 0;
         GlassSpec Spec(double ppd) => GlassSpec.For(j.S, L.S * ppd) with
         {
             WaveX = (float)((L.Centre - L.BarX - L.BarW / 2) * ppd),
             WaveWidth = (float)(L.Range * (1 + L.K / 2) * ppd),
-            WaveHeight = j.S.HoverRise ? (float)(L.Icon * L.K * ppd) : 0,
+            WaveHeight = (float)(L.Icon * waveRise * ppd),
         };
         var spec = Spec(j.Rs);
         int inset = (int)spec.Inset;

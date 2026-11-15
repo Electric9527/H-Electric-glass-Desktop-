@@ -2,6 +2,7 @@
 
 #include "ui/countdown.h"
 #include "ui/countdown_lunar.h"
+#include "localization.h"
 
 #include "clock.h"
 #include "log.h"
@@ -55,7 +56,7 @@ struct KindName {
 const KindName kKinds[] = {{WidgetKind::Clock, L"clock"},     {WidgetKind::Calendar, L"calendar"},   {WidgetKind::Battery, L"battery"},
                            {WidgetKind::Digital, L"digital"}, {WidgetKind::System, L"system"},       {WidgetKind::Notes, L"notes"},
                            {WidgetKind::Reminders, L"reminders"}, {WidgetKind::Photos, L"photos"},  {WidgetKind::Weather, L"weather"},
-                           {WidgetKind::Bluetooth, L"bluetooth"}, {WidgetKind::Countdown, L"countdown"}};
+                           {WidgetKind::Bluetooth, L"bluetooth"}, {WidgetKind::Countdown, L"countdown"}, {WidgetKind::Network, L"network"}};
 
 const wchar_t* NameOf(WidgetKind k)
 {
@@ -267,6 +268,8 @@ DesktopWidgets::DesktopWidgets(HINSTANCE instance) : instance_(instance)
     weather_ = std::make_unique<WeatherSource>(host_, WM_WIDGET_WEATHER);
     world_.weather = weather_->Latest(); // the last one, until the first fetch
     bluetooth_ = std::make_unique<BluetoothBatteries>(host_, WM_WIDGET_BLUETOOTH);
+    network_ = std::make_unique<NetworkMonitor>();
+    world_.network = network_.get();
 }
 
 void DesktopWidgets::SetMaterial(WidgetMaterial material)
@@ -279,6 +282,15 @@ void DesktopWidgets::SetMaterial(WidgetMaterial material)
             w->surface->SetGlassless(material_ == WidgetMaterial::Color);
             w->surface->Invalidate();
         }
+}
+
+void DesktopWidgets::ReloadLanguage()
+{
+    if (weather_)
+        weather_->Refresh();
+    for (auto& w : widgets_)
+        if (w->surface)
+            w->surface->Invalidate();
 }
 
 DesktopWidgets::~DesktopWidgets()
@@ -320,6 +332,7 @@ void DesktopWidgets::SetEnabled(bool on)
         KillTimer(host_, kSafetyTimer);
         weather_->SetActive(false);
         bluetooth_->SetActive(false);
+        network_->SetActive(false);
         KillTimer(host_, kCaretTimer);
         if (KillTimer(host_, kSaveTimer))
             Save(); // typing not saved yet
@@ -989,6 +1002,11 @@ void DesktopWidgets::Tick()
     weather_->SetActive(std::any_of(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::Weather; }));
     // The Bluetooth batteries are read while a Bluetooth widget is.
     bluetooth_->SetActive(std::any_of(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::Bluetooth; }));
+    // The link's rates and the minute of them behind them, once a second while a network widget is up.
+    const bool watching = std::any_of(widgets_.begin(), widgets_.end(), [](const auto& w) { return w->kind == WidgetKind::Network; });
+    network_->SetActive(watching);
+    if (watching)
+        network_->Sample();
     RemindCountdowns(t);
     for (auto& w : widgets_) {
         if (!w->surface)
@@ -996,7 +1014,7 @@ void DesktopWidgets::Tick()
         // A countdown that counts to the second is painted every second.
         const bool seconds = w->kind == WidgetKind::Countdown &&
                              std::any_of(w->content.items.begin(), w->content.items.end(), [](const Reminder& r) { return r.hms; });
-        if (w->kind == WidgetKind::Clock || seconds || minute || (sample && w->kind == WidgetKind::System))
+        if (w->kind == WidgetKind::Clock || seconds || minute || (sample && w->kind == WidgetKind::System) || (watching && w->kind == WidgetKind::Network))
             w->surface->Invalidate();
         if (w->kind == WidgetKind::Photos && w->photoAt && now - w->photoAt > kPhotoMs)
             LoadPhoto(*w, true);
@@ -1080,7 +1098,7 @@ void DesktopWidgets::PickFolder(Widget& w)
     FILEOPENDIALOGOPTIONS o = 0;
     dialog->GetOptions(&o);
     dialog->SetOptions(o | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-    dialog->SetTitle(L"选择照片文件夹");
+    dialog->SetTitle(Tr(L"选择照片文件夹"));
     Widget* wp = &w;
     winrt::com_ptr<IShellItem> item;
     PWSTR path = nullptr;
@@ -1307,6 +1325,9 @@ void DesktopWidgets::Activate(Widget& w)
         break;
     case WidgetKind::Bluetooth:
         open = L"ms-settings:bluetooth"; // Bluetooth & devices: each device with its battery
+        break;
+    case WidgetKind::Network:
+        open = L"ms-settings:network-status"; // 网络和 Internet: the adapters, their speeds and their usage
         break;
     case WidgetKind::Photos:
         if (w.content.photo.empty())
@@ -1795,17 +1816,17 @@ void DesktopWidgets::PickCity(Widget& w, POINT at)
     if (!menu)
         return;
     const std::vector<std::wstring> cities = WidgetCities(w.kind, w.content.cities);
-    std::vector<MenuEntry> slots{{L"更改哪个城市", 0, false, false, true}};
+    std::vector<MenuEntry> slots{{Tr(L"更改哪个城市"), 0, false, false, true}};
     for (size_t i = 0; i < cities.size(); ++i)
-        slots.push_back({cities[i], int(i) + 1});
+        slots.push_back({Tr(cities[i].c_str()), int(i) + 1});
     Widget* target = &w;
     menu->Open(std::move(slots), at, MenuPlace::Below, [this, target, at, cities](int slot) {
         if (slot <= 0 || !Has(target))
             return;
-        std::vector<MenuEntry> list{{cities[size_t(slot - 1)] + L" 换成", 0, false, false, true}};
+        std::vector<MenuEntry> list{{TrFormat(L"把「%s」换成", Tr(cities[size_t(slot - 1)].c_str())), 0, false, false, true}};
         const auto& all = WorldCities();
         for (size_t i = 0; i < all.size(); ++i)
-            list.push_back({all[i].name, int(i) + 1, cities[size_t(slot - 1)] == all[i].name});
+            list.push_back({Tr(all[i].name), int(i) + 1, cities[size_t(slot - 1)] == all[i].name});
         menu->Open(std::move(list), at, MenuPlace::Below, [this, target, slot, cities](int pick) {
             if (pick <= 0 || !Has(target))
                 return;
@@ -1827,22 +1848,22 @@ void DesktopWidgets::Menu(Widget& w)
     enum { kSmall = 1, kMedium, kLarge, kRemove, kFolder, kNextPhoto, kClearDone, kAdd, kCities, kStyleList, kStyleLarge };
     std::vector<MenuEntry> entries;
     auto size = [&](int id, WidgetSize s, const wchar_t* label) { entries.push_back({label, id, w.size == s, !WidgetSupports(w.kind, s)}); };
-    size(kSmall, WidgetSize::Small, L"小");
-    size(kMedium, WidgetSize::Medium, L"中");
-    size(kLarge, WidgetSize::Large, L"大");
+    size(kSmall, WidgetSize::Small, Tr(L"小"));
+    size(kMedium, WidgetSize::Medium, Tr(L"中"));
+    size(kLarge, WidgetSize::Large, Tr(L"大"));
     entries.push_back({});
     if (w.kind == WidgetKind::Photos) {
-        entries.push_back({L"选择照片文件夹…", kFolder});
-        entries.push_back({L"换一张", kNextPhoto});
+        entries.push_back({Tr(L"选择照片文件夹…"), kFolder});
+        entries.push_back({Tr(L"换一张"), kNextPhoto});
         entries.push_back({});
     }
     if (HasWorldClocks(w.kind, w.size)) {
-        entries.push_back({L"更改城市…", kCities});
+        entries.push_back({Tr(L"更改城市…"), kCities});
         entries.push_back({});
     }
     if (w.kind == WidgetKind::Reminders) {
         bool anyDone = std::any_of(w.content.items.begin(), w.content.items.end(), [](const Reminder& r) { return r.done; });
-        entries.push_back({L"清除已完成", kClearDone, false, !anyDone});
+        entries.push_back({Tr(L"清除已完成"), kClearDone, false, !anyDone});
         entries.push_back({});
     }
     if (w.kind == WidgetKind::Countdown) { // the style: a list, or the nearest day large (small is always large)
@@ -1851,8 +1872,8 @@ void DesktopWidgets::Menu(Widget& w)
         entries.push_back({L"大字样式", kStyleLarge, tiny || w.content.cdStyle == 1, tiny});
         entries.push_back({});
     }
-    entries.push_back({L"移除小组件", kRemove});
-    entries.push_back({L"添加小组件…", kAdd});
+    entries.push_back({Tr(L"移除小组件"), kRemove});
+    entries.push_back({Tr(L"添加小组件…"), kAdd});
     POINT p;
     GetCursorPos(&p);
     Widget* target = &w;

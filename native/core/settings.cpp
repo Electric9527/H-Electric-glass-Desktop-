@@ -1,5 +1,6 @@
 #include "settings.h"
 
+#include "localization.h"
 #include "log.h"
 #include "shell/logon_task.h"
 
@@ -16,6 +17,7 @@
 #include <cwctype>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 namespace json = winrt::Windows::Data::Json;
 
@@ -41,16 +43,22 @@ void Settings::Clamp()
     c(iconSize, 16, 64, d.iconSize);
     c(magnify, 1, 2, d.magnify);
     c(notifyTimeout, 3, 30, d.notifyTimeout);
+    c(nearEnter, 2, 160, d.nearEnter);
+    c(nearLeave, 2, 200, d.nearLeave);
     c(dockDisplayDelay, 100, 2000, d.dockDisplayDelay);
     tint &= 0xFFFFFF;
+    if (language != L"zh" && language != L"en")
+        language = L"auto";
     if (textColor != L"light" && textColor != L"dark")
         textColor = L"auto";
     if (autoHide != L"never" && autoHide != L"always")
         autoHide = L"fullscreen";
     if (statusStyle != L"icons")
         statusStyle = L"ring";
-    if (startSize != L"small" && startSize != L"medium" && startSize != L"large")
+    if (startSize != L"small" && startSize != L"medium" && startSize != L"large" && startSize != L"xlarge")
         startSize.clear();
+    if (startIcon != L"small" && startIcon != L"medium" && startIcon != L"large" && startIcon != L"xlarge")
+        startIcon.clear();
     if (dockDisplayMode != L"follow" && dockDisplayMode != L"fixed" && dockDisplayMode != L"all")
         dockDisplayMode = L"primary";
     if (taskbarApps != L"primaryAndWindow" && taskbarApps != L"window")
@@ -86,17 +94,23 @@ std::wstring Settings::ToJson() const
     num(L"iconSize", iconSize);
     num(L"magnify", magnify);
     o.SetNamedValue(L"hoverRise", json::JsonValue::CreateBooleanValue(hoverRise));
+    o.SetNamedValue(L"riseNear", json::JsonValue::CreateBooleanValue(riseNear));
+    o.SetNamedValue(L"magnifyNear", json::JsonValue::CreateBooleanValue(magnifyNear));
     o.SetNamedValue(L"startTray", json::JsonValue::CreateBooleanValue(startTray));
     o.SetNamedValue(L"startStatus", json::JsonValue::CreateBooleanValue(startStatus));
     if (!startSize.empty())
         o.SetNamedValue(L"startSize", json::JsonValue::CreateStringValue(startSize));
+    if (!startIcon.empty())
+        o.SetNamedValue(L"startIcon", json::JsonValue::CreateStringValue(startIcon));
     o.SetNamedValue(L"showClock", json::JsonValue::CreateBooleanValue(showClock));
+    o.SetNamedValue(L"showClockSeconds", json::JsonValue::CreateBooleanValue(showClockSeconds));
     o.SetNamedValue(L"showTray", json::JsonValue::CreateBooleanValue(showTray));
     o.SetNamedValue(L"showVoice", json::JsonValue::CreateBooleanValue(showVoice));
     o.SetNamedValue(L"showStatus", json::JsonValue::CreateBooleanValue(showStatus));
     o.SetNamedValue(L"showNotifications", json::JsonValue::CreateBooleanValue(showNotifications));
     o.SetNamedValue(L"autoWidth", json::JsonValue::CreateBooleanValue(autoWidth));
     o.SetNamedValue(L"showRunning", json::JsonValue::CreateBooleanValue(showRunning));
+    o.SetNamedValue(L"language", json::JsonValue::CreateStringValue(language));
     o.SetNamedValue(L"textColor", json::JsonValue::CreateStringValue(textColor));
     o.SetNamedValue(L"autoHide", json::JsonValue::CreateStringValue(autoHide));
     o.SetNamedValue(L"statusStyle", json::JsonValue::CreateStringValue(statusStyle));
@@ -108,6 +122,8 @@ std::wstring Settings::ToJson() const
     o.SetNamedValue(L"taskbarRightPrimaryOnly", json::JsonValue::CreateBooleanValue(taskbarRightPrimaryOnly));
     o.SetNamedValue(L"windowsContextMenu", json::JsonValue::CreateBooleanValue(windowsContextMenu));
     num(L"notifyTimeout", notifyTimeout);
+    num(L"nearEnter", nearEnter);
+    num(L"nearLeave", nearLeave);
     o.SetNamedValue(L"notifyPlacement", json::JsonValue::CreateStringValue(notifyPlacement));
     o.SetNamedValue(L"notifyHideBody", json::JsonValue::CreateBooleanValue(notifyHideBody));
     o.SetNamedValue(L"notifyListener", json::JsonValue::CreateBooleanValue(notifyListener));
@@ -128,6 +144,7 @@ std::wstring Settings::ToJson() const
     o.SetNamedValue(L"stageMinimize", json::JsonValue::CreateBooleanValue(stageMinimize));
     o.SetNamedValue(L"hideTaskbar", json::JsonValue::CreateBooleanValue(hideTaskbar));
     o.SetNamedValue(L"hideBanners", json::JsonValue::CreateBooleanValue(hideBanners));
+    o.SetNamedValue(L"remoteVisible", json::JsonValue::CreateBooleanValue(remoteVisible));
     o.SetNamedValue(L"winKeyStart", json::JsonValue::CreateBooleanValue(winKeyStart));
     o.SetNamedValue(L"winNumbers", json::JsonValue::CreateBooleanValue(winNumbers));
     o.SetNamedValue(L"startOnLogin", json::JsonValue::CreateBooleanValue(startOnLogin));
@@ -183,11 +200,16 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
             v = o.GetNamedBoolean(k);
     };
     flag(L"hoverRise", s.hoverRise);
+    flag(L"riseNear", s.riseNear);
+    flag(L"magnifyNear", s.magnifyNear);
     flag(L"startTray", s.startTray);
     flag(L"startStatus", s.startStatus);
     if (o.HasKey(L"startSize") && o.GetNamedValue(L"startSize").ValueType() == json::JsonValueType::String)
         s.startSize = std::wstring(o.GetNamedString(L"startSize"));
+    if (o.HasKey(L"startIcon") && o.GetNamedValue(L"startIcon").ValueType() == json::JsonValueType::String)
+        s.startIcon = std::wstring(o.GetNamedString(L"startIcon"));
     flag(L"showClock", s.showClock);
+    flag(L"showClockSeconds", s.showClockSeconds);
     flag(L"showTray", s.showTray);
     flag(L"showVoice", s.showVoice);
     flag(L"showStatus", s.showStatus);
@@ -195,6 +217,8 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
     flag(L"autoWidth", s.autoWidth);
     flag(L"showRunning", s.showRunning);
     num(L"notifyTimeout", s.notifyTimeout);
+    num(L"nearEnter", s.nearEnter);
+    num(L"nearLeave", s.nearLeave);
     flag(L"notifyHideBody", s.notifyHideBody);
     // Version 1 saved the old default (off) along with everything else; from
     // version 2 the notifications are on unless turned off since.
@@ -216,6 +240,7 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
     flag(L"stageMinimize", s.stageMinimize);
     flag(L"hideTaskbar", s.hideTaskbar);
     flag(L"hideBanners", s.hideBanners);
+    flag(L"remoteVisible", s.remoteVisible);
     flag(L"winKeyStart", s.winKeyStart);
     flag(L"winNumbers", s.winNumbers);
     flag(L"startOnLogin", s.startOnLogin);
@@ -225,6 +250,8 @@ bool Settings::FromJson(const std::wstring& text, const Settings& base, Settings
         const std::wstring m(o.GetNamedString(L"widgetMaterial"));
         s.widgetMaterial = m == L"dusk" || m == L"color" ? m : L"glass";
     }
+    if (o.HasKey(L"language") && o.GetNamedValue(L"language").ValueType() == json::JsonValueType::String)
+        s.language = std::wstring(o.GetNamedString(L"language"));
     if (o.HasKey(L"textColor") && o.GetNamedValue(L"textColor").ValueType() == json::JsonValueType::String)
         s.textColor = std::wstring(o.GetNamedString(L"textColor"));
     if (o.HasKey(L"autoHide") && o.GetNamedValue(L"autoHide").ValueType() == json::JsonValueType::String)
@@ -301,12 +328,18 @@ bool WriteTextFile(const std::wstring& path, const std::wstring& text)
     int n = WideCharToMultiByte(CP_UTF8, 0, text.data(), int(text.size()), nullptr, 0, nullptr, nullptr);
     std::string bytes(size_t(n), '\0');
     WideCharToMultiByte(CP_UTF8, 0, text.data(), int(text.size()), bytes.data(), n, nullptr, nullptr);
-    {
-        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-        out << bytes;
-        out.flush();
-        if (!out)
-            return false;
+    // Win32 rather than a stream: a failure leaves its reason in GetLastError.
+    HANDLE file = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    DWORD written = 0;
+    const bool ok = WriteFile(file, bytes.data(), DWORD(bytes.size()), &written, nullptr) && written == bytes.size() && FlushFileBuffers(file);
+    const DWORD error = ok ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(file);
+    if (!ok) {
+        DeleteFileW(tmp.c_str());
+        SetLastError(error != ERROR_SUCCESS ? error : ERROR_WRITE_FAULT);
+        return false;
     }
     return MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 }
@@ -394,15 +427,54 @@ bool IsDevelopmentBuild()
 #endif
 }
 
-bool SaveSettings(const Settings& s, std::wstring* warning)
+bool LowIntegrity()
+{
+    static const bool low = [] {
+        HANDLE token = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+            return false;
+        DWORD size = 0;
+        GetTokenInformation(token, TokenIntegrityLevel, nullptr, 0, &size);
+        std::vector<BYTE> buffer(size);
+        bool below = false;
+        if (size && GetTokenInformation(token, TokenIntegrityLevel, buffer.data(), size, &size)) {
+            const auto* label = reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(buffer.data());
+            const DWORD rid = *GetSidSubAuthority(label->Label.Sid, *GetSidSubAuthorityCount(label->Label.Sid) - 1);
+            below = rid < SECURITY_MANDATORY_MEDIUM_RID;
+        }
+        CloseHandle(token);
+        return below;
+    }();
+    return low;
+}
+
+bool SaveSettings(const Settings& s, std::wstring* warning, std::wstring* error)
 {
     if (warning) warning->clear();
+    if (error) error->clear();
     const bool startupChanged = LoadSettings().startOnLogin != s.startOnLogin;
-    if (!WriteTextFile(SettingsPath(), s.ToJson()))
+    const std::wstring path = SettingsPath();
+    if (!WriteTextFile(path, s.ToJson())) {
+        const DWORD code = GetLastError();
+        wchar_t* text = nullptr;
+        FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, code, 0,
+                       reinterpret_cast<wchar_t*>(&text), 0, nullptr);
+        std::wstring reason = text ? text : L"";
+        LocalFree(text);
+        while (!reason.empty() && (reason.back() == L'\n' || reason.back() == L'\r' || reason.back() == L' '))
+            reason.pop_back();
+        Log(L"settings: could not write %s (%lu)%s", path.c_str(), code, LowIntegrity() ? L", running at low integrity" : L"");
+        if (error) {
+            *error = TrFormat(L"无法写入 %s：%s（错误 %lu）", path.c_str(), reason.c_str(), code);
+            // Below medium integrity (an executable carrying a Low label) nothing in the profile is writable.
+            if (LowIntegrity())
+                *error += Tr(L"\nAtrium 正以低完整性级别运行，不能写入用户目录。请把 H-Electric-glass 解压到普通文件夹（例如 D:\\Atrium），确认 Atrium.exe 没有“低”完整性标签后重新启动。");
+        }
         return false;
+    }
     if (startupChanged && !SetStartOnLogin(s.startOnLogin)) {
         Log(L"settings: settings saved, but Windows startup could not be changed");
-        if (warning) *warning = L"设置已保存，但未能修改 Windows 开机启动。请重新切换开机启动后再保存。";
+        if (warning) *warning = Tr(L"设置已保存，但未能修改 Windows 开机启动。请重新切换开机启动后再保存。");
     }
     return true;
 }

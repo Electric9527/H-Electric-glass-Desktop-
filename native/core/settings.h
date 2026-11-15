@@ -36,15 +36,28 @@ struct Settings {
     double magnify = 1.7;            // dock magnification under the pointer: icon scale, 1 = off
     bool startTray = true;           // the tray's button in the start menu's capsule
     bool startStatus = true;         // the network, volume and battery buttons there
-    std::wstring startSize;          // the start menu's: small | medium | large; empty: as start.json has it (older files)
+    // The start menu's: small | medium | large | xlarge; empty: as start.json has it
+    // (older files). `startIcon`: how large its icons and folders are drawn, four
+    // steps of its own.
+    std::wstring startSize;
+    std::wstring startIcon;
     bool hoverRise = false;           // glass rises with the pointer's magnification wave
+    // A pointer resting just above the bar is answered ahead of time: the glass rises
+    // to it (with hoverRise) and the icons magnify — each on its own switch.
+    bool riseNear = true;
+    bool magnifyNear = false; // off unless chosen: the icons would grow under a pointer working just above the bar
+    double nearEnter = 40, nearLeave = 48; // DIP above the glass where that starts, and where it lets go
     bool autoWidth = true;           // shrink to the content
     bool showClock = true;
+    bool showClockSeconds = false;    // seconds after the minutes, in the system's long time format
     bool showTray = true;
     bool showVoice = true;           // a microphone entry: WeChat Input Method's voice input (its floating bar's microphone)
     bool showStatus = true;
     bool showNotifications = true;
     bool showRunning = true;
+    // The interface language of the bar, its popups, the widgets and the settings app.
+    // auto follows Windows' UI language (Chinese -> zh, anything else -> en).
+    std::wstring language = L"auto"; // auto | zh | en
     std::wstring textColor = L"auto"; // auto | light | dark
     // When the bar steps out of the way: never | fullscreen (a maximized or full-screen app is in
     // front) | always (it waits below the screen's bottom edge). The pointer there brings it up.
@@ -90,6 +103,7 @@ struct Settings {
     bool hideBanners = false;        // Do Not Disturb: no system banners, the notifications still become cards
     bool winKeyStart = false;        // the Windows key alone opens Atrium's start menu instead of Windows'
     bool winNumbers = false;         // Win + 1..9, 0 open the bar's apps
+    bool remoteVisible = false;      // remote-control apps see Atrium; the glass shows the wallpaper
     bool startOnLogin = true;        // independent of starting/stopping the current session
     // Pinned apps; nullopt = never saved yet (first run imports the Windows pins).
     std::optional<std::vector<PinnedApp>> pins;
@@ -109,8 +123,12 @@ std::wstring ReadTextFile(const std::wstring& path);
 bool WriteTextFile(const std::wstring& path, const std::wstring& text);
 Settings LoadSettings();
 // True means the file was saved. A failed startup change is reported separately;
-// callers must accept the saved snapshot even when warning is nonempty.
-bool SaveSettings(const Settings& s, std::wstring* warning = nullptr);
+// callers must accept the saved snapshot even when warning is nonempty. A failed
+// save says why in `error` (the path, the system's reason).
+bool SaveSettings(const Settings& s, std::wstring* warning = nullptr, std::wstring* error = nullptr);
+// The process runs below medium integrity (an executable with a Low label):
+// the profile and HKCU are closed to it, and its keys cannot reach other windows.
+bool LowIntegrity();
 bool IsDevelopmentBuild();
 // The current user's Windows logon entry, pointing at this core executable.
 bool SetStartOnLogin(bool enabled);
